@@ -1,0 +1,23 @@
+# Logs
+*.log
+node_modules/
+ds-agent-log-*.txt
+backup-*.zip
+
+# Test
+test-edge.js
+tests/
+
+# IDE
+.DS_Store
+Thumbs.db
+jsconfig.json
+.openclaw-zero-state/
+
+# OS
+.vscode/
+.idea/
+
+# Workspace test artifacts
+workspace/*.txt
+workspace/memory/

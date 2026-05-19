@@ -1,0 +1,57 @@
+{
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1WBfqy3mOJ/gtVBe2q7lFPy1mUnrHruGsVEB1k8fyKuLqX/24Bzzp4zU3anv2nzyd2rwK7sxet0JQ3sYQ90gSilNpfoGHigXfuQZ/9E8vGyLsje9jC/p6V7zs6dhXdnhez/LOV59EIJ4zSkgju9h6L57TLBskkJ4rm1ilgMn1JObIr7ouuKjJPolLYEMWBC121t+6uBtUIeEr+YAe4kXugEbw9vrLhbwsJr/YkDsO8Mrw6t4GVjAVsDqGDiMFbKIkZqkvVdzm6k43MBP3JpPh+blA/uWi9+Ys4SBBXgxzveTaZFRNboMsMVQlRl06KKd26qXUuqlKbH74h6ZkWpk7QIDAQAB",
+  "manifest_version": 3,
+  "name": "DeepSeek Tool Agent",
+  "version": "2.0.0",
+  "description": "为 DeepSeek 网页版添加本地工具调用能力 - 提示词注入、自动检测、工具执行、结果回填",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "nativeMessaging",
+    "tabs",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://chat.deepseek.com/*",
+    "http://localhost:3002/*",
+    "http://127.0.0.1:3002/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chat.deepseek.com/*"],
+      "js": [
+        "src/core/state.js",
+        "src/core/logger.js",
+        "src/core/parser.js",
+        "src/core/executor.js",
+        "src/core/backfill.js",
+        "src/dom/input.js",
+        "src/dom/ai-message.js",
+        "src/tools/registry.js",
+        "src/tools/builtin.js",
+        "src/plugins/loader.js",
+        "src/gateway/bridge.js",
+        "src/ui/connection.js",
+        "src/ui/file-browser.js",
+        "src/ui/panel.js",
+        "src/ui/actions.js",
+        "src/router.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/injected.js"],
+      "matches": ["https://chat.deepseek.com/*"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "DeepSeek Agent"
+  }
+}

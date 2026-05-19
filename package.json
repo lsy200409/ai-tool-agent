@@ -1,0 +1,16 @@
+{
+  "name": "deepseek-tool-agent",
+  "version": "2.0.0",
+  "description": "DeepSeek Web Extension — Local Tool Calling & Agent Framework",
+  "private": true,
+  "scripts": {
+    "server": "node server/tool-server.js",
+    "launcher": "node server/launcher.js"
+  },
+  "dependencies": {
+    "ws": "^8.20.1"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.60.0"
+  }
+}
