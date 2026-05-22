@@ -1,160 +1,259 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      width: 340px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
-      background: #ffffff;
-      color: #3a3632;
-    }
-    .container { padding: 14px; }
-    .header { text-align: center; margin-bottom: 12px; }
-    .header h1 { font-size: 15px; font-weight: 700; color: #5a8a4a; }
-    .header p { font-size: 10px; color: #9a9590; margin-top: 2px; }
+<meta charset="utf-8">
+<style>
+/* ===== Chromium Design Tokens ===== */
+:root {
+  --cr-primary: #1a73e8; --cr-on-primary: #fff;
+  --cr-surface: #fff; --cr-surface-1: #f8f9fa; --cr-surface-variant: #eee;
+  --cr-on-surface: #202124; --cr-on-subtle: #5f6368;
+  --cr-outline: #dadce0; --cr-error: #d93025;
+  --google-blue: #4285f4; --google-green: #1e8e3e; --google-red: #d93025; --google-yellow: #fcc934; --google-grey: #9aa0a6;
+  --cr-space-1:4px;--cr-space-2:8px;--cr-space-3:12px;--cr-space-4:16px;--cr-space-5:20px;--cr-space-6:24px;
+  --cr-radius-xs:2px;--cr-radius-sm:4px;--cr-radius-md:8px;--cr-radius-lg:12px;
+  --cr-font:"Roboto","Segoe UI",system-ui,-apple-system,sans-serif;
+  --cr-fs-xs:11px;--cr-fs-sm:12px;--cr-fs-md:13px;--cr-fs-base:14px;--cr-fs-lg:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:480px;height:560px;background:var(--cr-surface);font-family:var(--cr-font);font-size:var(--cr-fs-md);color:var(--cr-on-surface);display:flex;flex-direction:column;overflow:hidden}
 
-    .card {
-      background: #f8f6f2;
-      border: 1px solid rgba(0,0,0,0.08);
-      border-radius: 8px;
-      padding: 12px;
-      margin-bottom: 8px;
-    }
+/* Header */
+#pm-header{display:flex;align-items:center;justify-content:space-between;padding:var(--cr-space-3) var(--cr-space-4);border-bottom:1px solid var(--cr-outline);background:var(--cr-surface-1);flex-shrink:0}
+#pm-title{font-size:var(--cr-fs-base);font-weight:500}
+#pm-title span{color:var(--google-blue);font-weight:700}
+.pm-close-btn{width:28px;height:28px;border:1px solid transparent;border-radius:var(--cr-radius-sm);background:none;cursor:pointer;font-size:16px;color:var(--cr-on-subtle);display:flex;align-items:center;justify-content:center}
+.pm-close-btn:hover{background:var(--cr-surface-variant)}
 
-    .card-header {
-      display: flex; justify-content: space-between; align-items: center;
-      margin-bottom: 8px;
-    }
-    .card-title { font-size: 11px; font-weight: 600; color: #7a756c; display: flex; align-items: center; gap: 5px; }
+/* Body: sidebar + content */
+#pm-body{display:flex;flex:1;overflow:hidden;min-height:0}
 
-    .status-row { display: flex; align-items: center; margin-bottom: 6px; }
-    .status-label { font-size: 11px; color: #7a756c; width: 65px; flex-shrink: 0; }
-    .status-value { font-size: 11px; }
+/* Sidebar */
+#pm-sidebar{width:150px;background:var(--cr-surface-1);border-right:1px solid var(--cr-outline);display:flex;flex-direction:column;padding:var(--cr-space-2) 0;overflow-y:auto;flex-shrink:0}
+.pm-nav-item{display:flex;align-items:center;gap:var(--cr-space-2);padding:var(--cr-space-2) var(--cr-space-3);cursor:pointer;font-size:var(--cr-fs-sm);color:var(--cr-on-surface);border:none;background:none;width:100%;text-align:left;border-radius:0;transition:background 80ms}
+.pm-nav-item:hover{background:rgba(0,0,0,.04)}
+.pm-nav-item.active{background:#e8f0fe;color:var(--cr-primary);font-weight:500}
+.pm-nav-icon{width:18px;text-align:center;font-size:14px;flex-shrink:0}
+.pm-nav-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pm-nav-divider{height:1px;background:var(--cr-outline);margin:var(--cr-space-1) var(--cr-space-3)}
 
-    .badge { padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
-    .badge-ok { background: rgba(168,184,156,0.25); color: #5a8a4a; }
-    .badge-warn { background: rgba(212,196,168,0.25); color: #8a7a4a; }
-    .badge-off { background: rgba(0,0,0,0.06); color: #9a9590; }
-    .badge-error { background: rgba(196,154,140,0.2); color: #a04030; }
-    .badge-running { background: rgba(168,184,156,0.18); color: #5a8a4a; }
+/* Content area */
+#pm-content{flex:1;overflow-y:auto;padding:var(--cr-space-4)}
+.pm-page{display:none}
+.pm-page.active{display:block}
 
-    .toggle-container {
-      display: flex; align-items: center; gap: 8px; cursor: pointer;
-    }
-    .toggle-wrap { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
-    .toggle-bg {
-      width: 40px; height: 22px; border-radius: 11px;
-      background: #d5d0c8; transition: background 0.3s;
-    }
-    .toggle-bg.on { background: #a8b89c; }
-    .toggle-knob {
-      position: absolute; top: 2px; left: 2px;
-      width: 18px; height: 18px; border-radius: 50%;
-      background: #ffffff; transition: transform 0.3s;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-    }
-    .toggle-bg.on ~ .toggle-knob { transform: translateX(18px); }
+/* Section */
+.pm-section{margin-bottom:var(--cr-space-5)}
+.pm-section-title{font-size:var(--cr-fs-sm);font-weight:600;color:var(--cr-on-subtle);margin-bottom:var(--cr-space-3);text-transform:uppercase;letter-spacing:.3px}
 
-    .btn {
-      width: 100%; padding: 9px; border: none; border-radius: 7px;
-      font-size: 12px; font-weight: 600; cursor: pointer;
-      transition: all 0.2s; margin-bottom: 6px;
-      display: flex; align-items: center; justify-content: center; gap: 5px;
-    }
-    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
-    .btn:active { transform: translateY(0); }
+/* Form elements */
+.pm-form-row{display:flex;align-items:center;gap:var(--cr-space-3);margin-bottom:var(--cr-space-3)}
+.pm-form-row-label{width:90px;flex-shrink:0;font-size:var(--cr-fs-sm);color:var(--cr-on-subtle)}
+.pm-form-row-fill{flex:1}
+.pm-input{
+  width:100%;padding:6px 10px;border:1px solid var(--cr-outline);border-radius:var(--cr-radius-sm);
+  font-size:var(--cr-fs-sm);font-family:inherit;background:var(--cr-surface);outline:none;color:var(--cr-on-surface)
+}
+.pm-input:focus{border-color:var(--cr-primary)}
+.pm-input.error{border-color:var(--cr-error)}
+.pm-select{padding:6px 8px}
+.pm-textarea{resize:vertical;min-height:60px}
 
-    .btn-open { background: linear-gradient(135deg, #a8b89c, #8a9a7a); color: #fff; }
-    .btn-toggle { background: linear-gradient(135deg, #d4c4a8, #bca882); color: #fff; }
-    .btn-restart { background: linear-gradient(135deg, #c4b498, #a89a78); color: #fff; }
-    .btn-settings { background: #f0ede8; color: #7a756c; border: 1px solid rgba(0,0,0,0.10); }
+/* Buttons */
+.pm-btn{
+  padding:6px 16px;border:1px solid var(--cr-outline);border-radius:var(--cr-radius-sm);
+  background:var(--cr-surface);font-size:var(--cr-fs-sm);cursor:pointer;font-family:inherit;
+  color:var(--cr-on-surface);transition:all 80ms;display:inline-flex;align-items:center;gap:4px
+}
+.pm-btn:hover{background:var(--cr-surface-1);border-color:var(--cr-primary)}
+.pm-btn-primary{background:var(--google-blue);color:#fff;border-color:var(--google-blue)}
+.pm-btn-primary:hover{background:var(--cr-primary)}
+.pm-btn-danger{color:var(--google-red);border-color:transparent}
+.pm-btn-danger:hover{background:#fce8e6}
+.pm-btn-sm{padding:4px 10px;font-size:var(--cr-fs-xs)}
+.pm-btn-block{display:block;width:100%;justify-content:center;margin-bottom:var(--cr-space-2)}
 
-    .info-row {
-      display: flex; justify-content: space-between;
-      padding: 3px 0; font-size: 10px;
-      border-bottom: 1px solid rgba(0,0,0,0.05);
-    }
-    .info-row:last-child { border-bottom: none; }
-    .info-key { color: #8a857c; }
-    .info-val { color: #4a4640; }
+/* Toggle switch */
+.pm-toggle{position:relative;width:36px;height:20px;flex-shrink:0;cursor:pointer;border:none;background:none;padding:0}
+.pm-toggle-track{position:absolute;inset:0;background:var(--cr-surface-variant);border-radius:10px;transition:background 80ms}
+.pm-toggle-track.on{background:var(--google-blue)}
+.pm-toggle-knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform 80ms;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.pm-toggle-track.on .pm-toggle-knob{transform:translateX(16px)}
 
-    .no-data { text-align: center; padding: 6px 0; color: #b0aba0; font-size: 10px; }
+/* Status dot */
+.pm-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.pm-dot-green{background:var(--google-green)}.pm-dot-red{background:var(--google-red)}.pm-dot-grey{background:var(--google-grey)}
 
-    .footer { text-align: center; margin-top: 4px; }
-    .footer span { font-size: 9px; color: #d0cbc5; }
+/* Table-like list */
+.pm-list{border:1px solid var(--cr-outline);border-radius:var(--cr-radius-sm);overflow:hidden}
+.pm-list-header{display:flex;align-items:center;background:var(--cr-surface-1);padding:var(--cr-space-2) var(--cr-space-3);border-bottom:1px solid var(--cr-outline);font-size:var(--cr-fs-xs);font-weight:600;color:var(--cr-on-subtle)}
+.pm-list-row{display:flex;align-items:center;padding:var(--cr-space-2) var(--cr-space-3);border-bottom:1px solid var(--cr-outline);gap:var(--cr-space-2)}
+.pm-list-row:last-child{border-bottom:none}
+.pm-list-row:hover{background:var(--cr-surface-1)}
+.pm-list-name{flex:1;font-size:var(--cr-fs-sm);font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pm-list-desc{flex:2;font-size:var(--cr-fs-xs);color:var(--cr-on-subtle);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pm-list-action{flex-shrink:0}
 
-    ::-webkit-scrollbar { width: 3px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 2px; }
-  </style>
+/* Badge/chip */
+.pm-badge{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600}
+.pm-badge-auto{background:#e8f0fe;color:var(--google-blue)}
+.pm-badge-manual{background:#fef7e0;color:#b06000}
+.pm-badge-off{background:var(--cr-surface-variant);color:var(--cr-on-subtle)}
+.pm-badge-on{background:#e6f4ea;color:var(--google-green)}
+.pm-badge-off2{background:var(--cr-surface-variant);color:var(--cr-on-subtle)}
+
+/* Modal/Dialog */
+.pm-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:100;display:none;align-items:center;justify-content:center}
+.pm-modal-overlay.show{display:flex}
+.pm-modal{background:var(--cr-surface);border:1px solid var(--cr-outline);border-radius:var(--cr-radius-lg);padding:var(--cr-space-5);width:380px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.2)}
+.pm-modal-title{font-size:var(--cr-fs-base);font-weight:500;margin-bottom:var(--cr-space-4)}
+.pm-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:var(--cr-space-4)}
+
+/* Toast */
+#pm-toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);padding:8px 20px;background:#323232;color:#fff;border-radius:var(--cr-radius-sm);font-size:var(--cr-fs-sm);z-index:200;opacity:0;transition:opacity .2s;pointer-events:none}
+#pm-toast.show{opacity:1}
+
+/* Log tabs */
+.pm-log-tabs{display:flex;gap:2px;margin-bottom:var(--cr-space-2)}
+.pm-log-tab{padding:4px 12px;border:none;background:none;font-size:var(--cr-fs-xs);color:var(--cr-on-subtle);cursor:pointer;border-radius:var(--cr-radius-sm);font-weight:500}
+.pm-log-tab:hover{background:var(--cr-surface-1)}
+.pm-log-tab.active{background:var(--google-blue);color:#fff}
+
+/* Radio group */
+.pm-radio-group{display:flex;gap:var(--cr-space-3)}
+.pm-radio-label{display:flex;align-items:center;gap:4px;cursor:pointer;font-size:var(--cr-fs-sm)}
+.pm-radio{accent-color:var(--cr-primary)}
+
+/* Slider */
+.pm-slider{width:100%;accent-color:var(--cr-primary)}
+
+/* Preview box */
+.pm-preview{border:1px solid var(--cr-outline);border-radius:var(--cr-radius-md);padding:var(--cr-space-3);background:var(--cr-surface-1);margin-top:var(--cr-space-3)}
+
+/* Empty state */
+.pm-empty{text-align:center;padding:var(--cr-space-8);color:var(--cr-on-subtle);font-size:var(--cr-fs-sm)}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-thumb{background:var(--cr-surface-variant);border-radius:3px}
+</style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <h1>🛠️ DeepSeek Agent</h1>
-      <p>面板管理 · 状态监控 · 快速操作</p>
-    </div>
 
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title">🎛️ 面板控制</span>
-      </div>
-      <div class="status-row">
-        <span class="status-label">工具面板</span>
-        <div class="toggle-container" id="panel-toggle">
-          <div class="toggle-wrap">
-            <div class="toggle-bg on" id="panel-toggle-bg"></div>
-            <div class="toggle-knob" id="panel-toggle-knob"></div>
+<!-- Header -->
+<div id="pm-header">
+  <div id="pm-title"><span>[DS]</span> 工具代理管理器 v2.5</div>
+  <button class="pm-close-btn" id="pm-btn-close" title="关闭">&times;</button>
+</div>
+
+<!-- Body -->
+<div id="pm-body">
+  <!-- Sidebar Navigation -->
+  <nav id="pm-sidebar">
+    <button class="pm-nav-item active" data-page="connection"><span class="pm-nav-icon">&#8962;</span><span class="pm-nav-label">连接</span></button>
+    <button class="pm-nav-item" data-page="quickactions"><span class="pm-nav-icon">&#9889;</span><span class="pm-nav-label">快捷操作</span></button>
+    <div class="pm-nav-divider"></div>
+    <button class="pm-nav-item" data-page="data"><span class="pm-nav-icon">&#128190;</span><span class="pm-nav-label">数据</span></button>
+    <button class="pm-nav-item" data-page="about"><span class="pm-nav-icon">&#8505;</span><span class="pm-nav-label">关于</span></button>
+  </nav>
+
+  <!-- Content Pages -->
+  <main id="pm-content">
+
+    <!-- === CONNECTION PAGE === -->
+    <div class="pm-page active" id="pm-page-connection">
+      <div class="pm-section">
+        <div class="pm-section-title">API 配置</div>
+        <div class="pm-form-row">
+          <label class="pm-form-row-label">后端地址</label>
+          <div class="pm-form-row-fill"><input class="pm-input" id="pm-api-url" placeholder="http://localhost:3002" /></div>
+        </div>
+        <div class="pm-form-row">
+          <label class="pm-form-row-label">API 密钥</label>
+          <div class="pm-form-row-fill" style="display:flex;gap:4px">
+            <input class="pm-input" id="pm-api-key" type="password" placeholder="sk-..." style="flex:1" />
+            <button class="pm-btn pm-btn-sm" id="pm-btn-showkey">显示</button>
           </div>
-          <span style="font-size: 11px; color: #7a756c;" id="panel-toggle-label">已显示</span>
+        </div>
+        <div class="pm-form-row">
+          <label class="pm-form-row-label">超时 (秒)</label>
+          <div class="pm-form-row-fill"><input class="pm-input" id="pm-timeout" type="number" min="1" max="30" value="10" /></div>
+        </div>
+        <div class="pm-form-row">
+          <label class="pm-form-row-label" style="display:block">WS 地址 (可选)</label>
+          <div class="pm-form-row-fill"><input class="pm-input" id="pm-ws-url" placeholder="ws://localhost:3002/ws" /></div>
+          <div style="font-size:10px;color:#9aa0a6;margin-top:2px">WebSocket 实时通信地址，用于接收服务端推送的日志和状态更新</div>
         </div>
       </div>
-    </div>
 
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title">📡 服务状态</span>
-      </div>
-      <div class="status-row">
-        <span class="status-label">工具服务</span>
-        <span class="badge badge-off" id="server-badge">检测中</span>
-      </div>
-      <div class="status-row">
-        <span class="status-label">守护进程</span>
-        <span class="badge badge-off" id="launcher-badge">检测中</span>
+      <div class="pm-section">
+        <div class="pm-section-title">连接状态</div>
+        <div class="pm-form-row">
+          <label class="pm-form-row-label">状态</label>
+          <div class="pm-form-row-fill" style="display:flex;align-items:center;gap:8px">
+            <span class="pm-dot pm-dot-grey" id="pm-conn-dot"></span>
+            <span id="pm-conn-status" style="font-size:var(--cr-fs-sm)">未检测</span>
+          </div>
+        </div>
+        <button class="pm-btn pm-btn-primary pm-btn-block" id="pm-btn-test-conn">测试连接</button>
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title">📋 任务概览</span>
+    <!-- === QUICK ACTIONS PAGE === -->
+    <div class="pm-page" id="pm-page-quickactions">
+      <div class="pm-section" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--cr-space-3)">
+        <div class="pm-section-title" style="margin:0">快捷操作 (最多5个)</div>
+        <div style="display:flex;gap:4px">
+          <button class="pm-btn pm-btn-sm" id="pm-btn-add-qa">+ 添加</button>
+          <button class="pm-btn pm-btn-sm" id="pm-btn-import-preset">导入预设</button>
+        </div>
       </div>
-      <div id="task-overview">
-        <div class="no-data">暂无任务</div>
+      <div id="pm-qa-list"></div>
+    </div>
+
+    <!-- === DATA PAGE === -->
+    <div class="pm-page" id="pm-page-data">
+      <div class="pm-section">
+        <div class="pm-section-title">备份与恢复</div>
+        <button class="pm-btn pm-btn-block" id="pm-btn-export-config">&#8615; 导出配置 (JSON)</button>
+        <button class="pm-btn pm-btn-block" id="pm-btn-import-config">&#8614; 导入配置 (JSON)</button>
+        <input type="file" id="pm-file-import" accept=".json" style="display:none" />
+      </div>
+      <div class="pm-section">
+        <div class="pm-section-title">危险操作</div>
+        <button class="pm-btn pm-btn-block" id="pm-btn-reset-default">恢复默认设置</button>
+        <button class="pm-btn pm-btn-block pm-btn-danger" id="pm-btn-clear-all">清除所有数据</button>
       </div>
     </div>
 
-    <div>
-      <button class="btn btn-open" id="btn-open-deepseek">
-        🌐 打开 DeepSeek
-      </button>
-      <button class="btn btn-toggle" id="btn-toggle-panel">
-        👁️ 显示/隐藏面板
-      </button>
-      <button class="btn btn-restart" id="btn-restart-server">
-        🔄 重启服务
-      </button>
-      <button class="btn btn-settings" id="btn-settings">
-        ⚙️ 工作区设置
-      </button>
+    <!-- === ABOUT PAGE === -->
+    <div class="pm-page" id="pm-page-about">
+      <div class="pm-section" style="text-align:center;padding:var(--cr-space-6) 0">
+        <div style="font-size:32px;font-weight:700;color:var(--google-blue);margin-bottom:var(--cr-space-2)">[DS]</div>
+        <div style="font-size:var(--cr-fs-lg);font-weight:500">DeepSeek 工具代理</div>
+        <div style="font-size:var(--cr-fs-sm);color:var(--cr-on-subtle);margin-top:4px">v2.5.0 &middot; Chrome 扩展 MV3</div>
+      </div>
+      <div class="pm-section">
+        <div class="pm-section-title">描述</div>
+        <p style="font-size:var(--cr-fs-sm);color:var(--cr-on-subtle);line-height:1.6">为 DeepSeek 网页版添加本地工具调用能力。支持提示注入、自动检测、工具执行和结果注入。</p>
+      </div>
+      <div class="pm-section">
+        <button class="pm-btn pm-btn-block" id="pm-btn-diagnose">&#9878; 运行诊断</button>
+        <button class="pm-btn pm-btn-block" id="pm-btn-open-github">&#8599; GitHub 仓库</button>
+      </div>
     </div>
 
-    <div class="footer">
-      <span>v2.0 · Agent 模式</span>
-    </div>
-  </div>
-  <script src="popup.js"></script>
+  </main>
+</div>
+
+<!-- Toast -->
+<div id="pm-toast"></div>
+
+<!-- Modal overlay -->
+<div class="pm-modal-overlay" id="pm-modal-overlay">
+  <div class="pm-modal" id="pm-modal-content"></div>
+</div>
+
+<script src="popup.js"></script>
 </body>
 </html>

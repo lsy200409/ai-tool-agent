@@ -1,0 +1,10 @@
+{
+  "id": "example-plugin",
+  "name": "Example Plugin",
+  "version": "1.0.0",
+  "description": "An example plugin demonstrating openclaw-compatible tool registration",
+  "entry": "index.js",
+  "requiredEngineVersion": "^2.3.0",
+  "tools": ["example_hello"],
+  "kind": "tool"
+}

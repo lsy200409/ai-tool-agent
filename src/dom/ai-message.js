@@ -20,27 +20,34 @@ function wasSendButtonJustReturnedToArrow() {
 }
 
 function getLatestAIMessageText() {
-  // 仅选取 assistant 类型的消息，排除用户消息和系统提示
-  var sel = '[data-role="assistant"],div[class*="ds-message"][class*="assistant"],div.ds-markdown';
-  var els = document.querySelectorAll(sel);
+  // DeepSeek 真实 DOM: AI回复主内容在 div.ds-assistant-message-main-content 中
+  // 思考过程在普通 div.ds-markdown 中，我们取最后一个有 main-content 的
+  var els = document.querySelectorAll('div.ds-assistant-message-main-content');
   var best = '';
   for (var i = 0; i < els.length; i++) {
-    var txt = (els[i].innerText || els[i].textContent || '').trim();
-    // 跳过系统提示词（包含 ## 环境、## 可用工具 等内容）
+    var el = els[i];
+    if (el.closest('.ds-think-content')) continue;
+    var txt = (el.innerText || el.textContent || '').trim();
     if (txt.indexOf('## 环境') >= 0 || txt.indexOf('## 可用工具') >= 0) continue;
-    if (txt.length > 20) best = txt;
-  }
-  // 备用：如果上面的选择器没找到，从 body innerText 截取最后一段
-  if (best.length < 30) {
-    var bodyText = (document.body.innerText || '').trim();
-    var lines = bodyText.split('\n');
-    var parts = [];
-    for (var j = lines.length - 1; j >= 0 && parts.length < 50; j--) {
-      if (lines[j].trim() && lines[j].indexOf('## ') !== 0) parts.unshift(lines[j]);
-    }
-    if (parts.length > 10) best = parts.join('\n');
+    if (txt.length > 0) best = txt;
   }
   return best;
+}
+
+function getLatestUserMessageText() {
+  var all = document.querySelectorAll('div.ds-message');
+  var last = '';
+  for (var i = 0; i < all.length; i++) {
+    if (!all[i].querySelector('.ds-assistant-message-main-content')) {
+      if (all[i].querySelector('.ds-think-content')) continue;
+      var txt = (all[i].innerText || all[i].textContent || '').trim();
+      if (txt.indexOf('<tool_response') >= 0) continue;
+      if (txt.indexOf('原始任务:') >= 0) continue;
+      if (txt.indexOf('正在思考') === 0) continue;
+      if (txt.length > 0) last = txt;
+    }
+  }
+  return last;
 }
 
 function aiAlreadyRepliedAfterToolCall() {

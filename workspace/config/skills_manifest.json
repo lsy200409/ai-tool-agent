@@ -1,0 +1,17 @@
+{
+  "enabled_skills": [
+    {
+      "name": "code_review",
+      "enabled": true
+    },
+    {
+      "name": "code-review",
+      "enabled": true
+    },
+    {
+      "name": "skill-creator",
+      "enabled": true
+    }
+  ],
+  "custom_skills": []
+}

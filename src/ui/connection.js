@@ -105,15 +105,30 @@ async function _tryConnectOnce(serverTextEl) {
 }
 
 function updateServerStatusUI(running) {
-  var dot = document.getElementById('__ds-panel-status-dot');
-  var text = document.getElementById('__ds-server-text');
-  if (dot) dot.className = running ? '__ds-status-connected' : '__ds-status-disconnected';
-  if (text) { text.textContent = running ? '已连接' : '未连接'; text.className = running ? '__ds-status-on' : '__ds-status-off'; }
+  var petDot = document.getElementById('__ds-pet-dot');
+  var headerDot = document.getElementById('__ds-h-status-dot');
+  var statusText = document.getElementById('__ds-status-text');
+  var serverStatusText = document.getElementById('__ds-server-status-text');
+  var panelStatusDot = document.getElementById('__ds-panel-status-dot');
+  var serverText = document.getElementById('__ds-server-text');
+
+  var dotColor = running ? '#5b8a4a' : '#c0bab0';
+  var dotShadow = running ? '0 0 6px rgba(91,138,74,0.4)' : 'none';
+
+  if (petDot) { petDot.style.background = dotColor; petDot.style.boxShadow = dotShadow; }
+  if (headerDot) { headerDot.style.background = dotColor; headerDot.style.boxShadow = dotShadow; }
+  if (statusText) statusText.textContent = running ? '已连接' : '未连接';
+  if (serverStatusText) serverStatusText.textContent = running ? '✅ 已连接' : '❌ 未连接';
+  if (panelStatusDot) { panelStatusDot.className = running ? '__ds-status-connected' : '__ds-status-disconnected'; }
+  if (serverText) { serverText.textContent = running ? '已连接' : '未连接'; serverText.className = running ? '__ds-status-on' : '__ds-status-off'; }
 }
 
 function setStageText(msg) {
-  var el = document.getElementById('__ds-stage-text');
+  var el = document.getElementById('__ds-status-text');
   if (el) el.textContent = msg;
+
+  var stageEl = document.getElementById('__ds-stage-text');
+  if (stageEl) stageEl.textContent = msg;
 }
 
 function updateAutoButtonState() {

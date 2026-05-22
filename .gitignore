@@ -1,12 +1,29 @@
 # Logs
 *.log
+logs/
 node_modules/
 ds-agent-log-*.txt
 backup-*.zip
 
-# Test
-test-edge.js
-tests/
+# Test & Diagnostics
+test-*.js
+test-*.png
+check-*.js
+diagnose-*.js
+dom-scan.js
+panel-test.js
+quick-diag.js
+test-buttons.js
+test-plugin-manager.js
+
+# Screenshots
+*.png
+!icons/*.png
+
+# Backups & Traces
+backups/
+traces/
+*.trace.json
 
 # IDE
 .DS_Store
@@ -18,6 +35,18 @@ jsconfig.json
 .vscode/
 .idea/
 
-# Workspace test artifacts
+# Workspace runtime data (not config)
 workspace/*.txt
 workspace/memory/
+workspace/plugins/memory/
+workspace/sessions/
+workspace/小说/
+workspace/bug_analysis.md
+
+# Test checklists (markdown)
+全量测试清单.md
+核心功能测试清单.md
+测试结果.md
+用户消息检测修复-测试清单.md
+后端测试清单.md
+前后端联调对照表

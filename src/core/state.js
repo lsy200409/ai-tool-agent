@@ -17,6 +17,13 @@ var __MAX_LOG_ENTRIES = 50;
 var __connectionHealthy = false;
 var __lastPingTime = 0;
 
+// Agent 配置状态
+var agentPersonality = null;
+var agentMemoryInitialized = false;
+var agentSkills = [];
+var agentTools = [];
+var agentQuickActions = [];
+
 var TOOL_CALL_REGEX = /<tool_call[^>]*>([\s\S]*?)<\/tool_call>/i;
 var ARROW_SVG_PATH = 'm8.3125';
 

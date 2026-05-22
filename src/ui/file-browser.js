@@ -6,10 +6,10 @@ async function loadFileBrowser(dirPath) {
   if (!wsPath) { treeEl.innerHTML = '<div class="__ds-file-error">未设置工作区路径<br>请点击 ⚙️ 设置</div>'; return; }
   updateWorkspaceDisplay(wsPath);
   try {
-    var response = await fetch('http://localhost:3002/api/list', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: wsPath }) });
+    var response = await fetch('http://localhost:3002/exec', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool: 'list_dir', args: { path: wsPath } }) });
     if (!response.ok) throw new Error('服务器响应错误');
     var data = await response.json();
-    if (!data.success) throw new Error(data.error || '读取目录失败');
+    if (!data.success) throw new Error(data.error ? (data.error.message || '读取目录失败') : '读取目录失败');
     renderFileTree(treeEl, data.files, wsPath);
   } catch(e) {
     var errMsg = e.message || '';
@@ -71,10 +71,10 @@ async function previewFile(filePath) {
   nameEl.textContent = filePath.split(/[\\/]/).pop();
   contentEl.textContent = '加载中...';
   try {
-    var response = await fetch('http://localhost:3002/api/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: filePath }) });
+    var response = await fetch('http://localhost:3002/exec', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool: 'read_file', args: { path: filePath } }) });
     if (!response.ok) throw new Error('读取失败');
     var data = await response.json();
-    if (!data.success) throw new Error(data.error || '读取失败');
+    if (!data.success) throw new Error(data.error ? (data.error.message || '读取失败') : '读取失败');
     var content = data.content || '';
     if (content.length > 50000) content = content.substring(0, 50000) + '\n\n... (内容过长, 已截断)';
     contentEl.textContent = content;

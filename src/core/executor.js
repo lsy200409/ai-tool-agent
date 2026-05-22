@@ -33,26 +33,21 @@ function sendMessageWithRetry(message, maxRetries) {
 }
 
 function getToolEndpoint(toolName) {
-  var map = {
-    'read_file': 'read', 'write_file': 'write', 'list_dir': 'list',
-    'exec_command': 'exec', 'append_file': 'append',
-    'search_files': 'search', 'get_file_info': 'file-info'
-  };
-  return map[toolName] || 'exec';
+  return 'exec';
 }
 
 async function executeToolViaHttp(toolCall) {
-  var endpoint = getToolEndpoint(toolCall.name);
   var ctrl = new AbortController();
   var timer = setTimeout(function() { ctrl.abort(); }, 15000);
   try {
-    var response = await fetch('http://localhost:3002/api/' + endpoint, {
+    var response = await fetch('http://localhost:3002/exec', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(toolCall.arguments || {}), signal: ctrl.signal
+      body: JSON.stringify({ tool: toolCall.name, args: toolCall.arguments || {} }), signal: ctrl.signal
     });
     clearTimeout(timer);
     var data = await response.json();
-    return data.success ? { success: true, data: data } : { success: false, error: data.error || 'HTTP执行失败' };
+    if (data.error) return { success: false, error: data.error.message || '执行失败' };
+    return { success: true, data: data };
   } catch (e) {
     clearTimeout(timer);
     throw e;

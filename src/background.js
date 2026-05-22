@@ -31,14 +31,19 @@ function buildSystemPrompt() {
 }
 
 const TOOL_EXECUTORS = {
-  async read_file(args) { return await fetchJSON('/api/read', { path: args.path }); },
-  async write_file(args) { const data = await fetchJSON('/api/write', { path: args.path, content: args.content }); return { content: `文件已写入: ${args.path}` }; },
-  async list_dir(args) { const data = await fetchJSON('/api/list', { path: args.path }); return { content: formatDirList(data.files, args.path) }; },
-  async exec_command(args) { const data = await fetchJSON('/api/exec', { command: args.command }); return { content: data.stdout || data.stderr || '(no output)' }; },
-  async append_file(args) { const data = await fetchJSON('/api/append', { path: args.path, content: args.content }); return { content: `内容已追加到: ${args.path}` }; },
-  async search_files(args) { const data = await fetchJSON('/api/search', { pattern: args.pattern, root: args.root }); return { content: data.files.length > 0 ? `找到 ${data.files.length} 个文件:\n${data.files.join('\n')}` : '未找到匹配的文件' }; },
-  async get_file_info(args) { const data = await fetchJSON('/api/file-info', { path: args.path }); return { content: formatFileInfo(data.info) }; }
+  async read_file(args) { return await fetchExec('read_file', args); },
+  async write_file(args) { return await fetchExec('write_file', args); },
+  async list_dir(args) { return await fetchExec('list_dir', args); },
+  async exec_command(args) { return await fetchExec('exec_command', args); },
+  async append_file(args) { return await fetchExec('append_file', args); },
+  async search_files(args) { return await fetchExec('search_files', args); },
+  async get_file_info(args) { return await fetchExec('get_file_info', args); }
 };
+
+async function fetchExec(toolName, args) {
+  var data = await fetchJSON('/exec', { tool: toolName, args: args });
+  return data;
+}
 
 async function fetchJSON(endpoint, body, retries) {
   retries = retries || 2;
@@ -52,7 +57,8 @@ async function fetchJSON(endpoint, body, retries) {
       });
       const data = await response.json();
       if (!data.success) {
-        throw new Error(`服务器返回错误: ${data.error || JSON.stringify(data)} (HTTP ${response.status})`);
+        var errMsg = data.error ? (data.error.message || JSON.stringify(data.error)) : JSON.stringify(data);
+        throw new Error(`服务器返回错误: ${errMsg} (HTTP ${response.status})`);
       }
       return data;
     } catch (err) {

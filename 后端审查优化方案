@@ -1,0 +1,199 @@
+后端审查优化整理方案
+一、现有架构回顾
+1.1 技术栈
+运行环境：Node.js 原生 http 模块（无 Express）
+
+通信：HTTP REST API（端口3002） + 可选 WebSocket
+
+工具执行：child_process.spawn 实现文件搜索、读写、命令执行等
+
+插件系统：基于文件系统扫描的动态 require() 加载
+
+OS 适配：cross-platform.js 统一路径分隔符、命令差异
+
+1.2 代码结构
+text
+server/
+├── tool-server.js        # HTTP 服务器 & 路由 (644行)
+├── tool-registry.js      # 7 个内置工具实现 (451行)
+├── plugin-loader.js      # openclaw 兼容插件加载 (334行)
+├── cross-platform.js     # OS 适配层 (160行)
+└── launcher.js           # 启动器/端口管理 (275行)
+1.3 核心功能
+端点	功能
+GET /health	健康检查
+POST /exec	工具执行入口
+POST /init	Agent 初始化
+GET /tools	获取工具列表
+GET /skills	获取技能列表
+WS /ws	实时日志推送（可选）
+二、现存问题与风险
+2.1 架构与代码质量
+问题	详细描述	风险等级
+路由硬编码	tool-server.js 中路由以 if/else if 匹配，扩展性差	中
+错误处理不统一	多数 catch 仅 console.error，无统一错误响应格式	高
+并发控制缺失	多个 exec 请求同时操作文件无锁/队列，可能导致竞态条件	高
+日志系统简陋	仅 console.log，无级别、持久化、轮转	中
+配置管理零散	多处 process.env 散落，无集中配置模块	中
+WS 复用性差	WebSocket 逻辑与 HTTP 服务器紧耦合，无广播/房间管理	低
+缺乏单元测试	无任何测试覆盖	高
+静态文件处理缺失	无法直接提供文档/面板静态资源	低
+2.2 安全性
+问题	描述	风险
+CORS 全开	Access-Control-Allow-Origin: * 允许任意来源	高
+路径穿越风险	文件操作依赖用户输入 path，虽有限目录检查但不够健壮	高
+命令注入风险	shell_exec 使用白名单，但参数拼接可能绕过	中
+API Key 校验薄弱	POST /exec 等未强制认证（仅通过前端传递，可被窃取）	中
+依赖原生执行	child_process.spawn 无资源限制（CPU/内存）	中
+2.3 性能与可维护性
+工具执行同步阻塞事件循环（大文件读写未流式处理）
+
+插件动态 require() 无法热卸载，缓存污染
+
+启动时全量扫描工作区目录，大量插件可能延迟启动
+
+三、优化方案
+3.1 代码重构分层
+目标：解耦路由、业务逻辑、中间件，形成清晰分层架构。
+
+新目录结构：
+
+text
+server/
+├── index.js                  # 入口（替代 launcher.js）
+├── app.js                    # HTTP+WS 应用组装
+├── config/
+│   ├── default.js            # 默认配置
+│   └── env.js                # 环境变量读取
+├── middleware/
+│   ├── auth.js               # API Key 认证
+│   ├── cors.js               # 精确 CORS
+│   ├── error-handler.js      # 全局错误处理
+│   └── rate-limit.js         # 请求速率限制
+├── routes/
+│   ├── health.js             # 健康检查
+│   ├── agent.js              # init, exec 等
+│   └── management.js         # tools/skills 查询
+├── services/
+│   ├── tool-executor.js      # 工具执行编排（队列/超时/日志）
+│   ├── file-ops.js           # 安全的文件操作封装
+│   ├── shell-ops.js          # 安全的命令执行封装
+│   └── logger.js             # 结构化日志服务
+├── plugins/
+│   ├── loader.js             # 插件加载器（重写为沙箱式）
+│   └── sandbox.js            # 插件隔离沙箱
+├── cross-platform.js         # 保留并增强
+└── tests/                    # 测试用例
+3.2 路由与中间件改造
+使用轻量框架（如 express）或保持原生但引入路由中间件，实现声明式路由：
+
+javascript
+// 示例：使用 express 改造
+const express = require('express');
+const app = express();
+app.use(cors({ origin: /^chrome-extension:\/\// }));
+app.use(authMiddleware);
+app.use(rateLimit);
+app.get('/health', healthHandler);
+app.post('/exec', execHandler);
+app.use(errorHandler);
+若无外部依赖要求，可自实现一个 Router 类：
+
+javascript
+class Router {
+  constructor() { this.routes = []; }
+  get(path, handler) { this.routes.push({ method: 'GET', path, handler }); }
+  post(path, handler) { this.routes.push({ method: 'POST', path, handler }); }
+  handle(req, res) { /* 匹配并执行 */ }
+}
+3.3 安全增强
+措施	实现方案
+CORS 白名单	仅允许 chrome-extension://<extension-id> 来源，extension-id 从配置读取
+路径严格校验	使用 path.resolve 后校验是否以 workspaceDir 开头，拒绝 .. 跨越
+API Key 强化	后端强制认证：所有 /exec 请求需带 Authorization: Bearer <key>，Key 从启动参数或配置文件读取
+沙箱命令执行	引入 vm2 或 isolated-vm 隔离插件代码，shell_exec 使用参数化数组而非字符串拼接
+资源限制	使用 child_process.spawn 的 timeout 选项，并监控进程资源（pidusage）超限则 kill
+3.4 健壮性与日志
+全局错误处理：中间件捕获所有未处理异常，返回统一格式 { error: { code, message } }
+
+结构化日志：使用 pino 或 winston，支持 JSON 输出、本地文件轮转、WebSocket 推送
+
+健康检查：增加依赖项检查（如 workspace 目录可读写）
+
+3.5 插件系统改进
+沙箱化：每个插件运行在独立 VM 中，提供有限 API（如 fileRead, fileWrite 封装函数），防止直接访问系统。
+
+生命周期管理：支持 onLoad, onUnload, onEnable, onDisable 钩子，避免内存泄漏。
+
+动态加载/卸载：使用 import() 动态模块，清除缓存用 decache 机制。
+
+插件依赖管理：plugin.json 中声明依赖的 npm 包，由加载器安装。
+
+3.6 配置集中管理
+javascript
+// config/default.js
+module.exports = {
+  port: 3002,
+  workspace: path.join(os.homedir(), '.ds-agent'),
+  corsOrigins: ['chrome-extension://xxxx'],
+  apiKey: process.env.DS_API_KEY,
+  tools: {
+    shell: { allowedCommands: ['ls', 'cat', 'grep'] },
+    timeout: 10000
+  },
+  logging: { level: 'info', file: 'logs/server.log' }
+};
+3.7 测试策略
+单元测试：file-ops.js, shell-ops.js, cross-platform.js 使用 jest 编写纯逻辑测试。
+
+集成测试：使用 supertest 启动服务器模拟请求，验证路由和认证。
+
+插件测试：测试沙箱内工具执行和权限限制。
+
+CI 集成：配置 npm test 脚本，运行 lint + 测试。
+
+四、实施路线图
+阶段一：安全加固（高优先级）
+严格 CORS 白名单
+
+统一认证中间件
+
+路径校验和命令参数化
+
+添加速率限制
+
+阶段二：架构重构
+拆分路由和中间件
+
+引入日志库（pino）
+
+封装文件/命令操作服务
+
+阶段三：插件系统升级
+实现沙箱隔离
+
+重构 plugin-loader 支持生命周期
+
+阶段四：可观测性
+结构化日志 + WebSocket 推送分级日志到前端
+
+健康检查增强
+
+监控工具执行耗时、成功率
+
+阶段五：测试与文档
+编写核心模块单元测试
+
+API 文档（OpenAPI/Swagger）
+
+开发者文档（如何扩展工具/插件）
+
+五、优化收益预估
+方面	优化前	优化后
+安全性	路径穿越、命令注入、未授权访问风险	多层防护，沙箱隔离，白名单认证
+可维护性	单文件 644 行难以定位问题	模块化，职责清晰，易于独立修改
+稳定性	无错误兜底，异常即崩溃	全局错误处理，统一响应，进程守护
+性能	文件操作阻塞循环	流式处理，资源限制，并发队列
+可测试性	0% 覆盖	核心逻辑覆盖 > 80%
+开发体验	环境变量散落，调试困难	集中配置，结构化日志，热重载插件
+此优化方案可逐步实施，确保向后兼容现有前端接口，最终提升整个 Agent 系统的后端可靠性与可扩展性。

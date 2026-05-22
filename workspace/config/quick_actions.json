@@ -1,0 +1,14 @@
+[
+  {
+    "label": "V4-A",
+    "command": "cmd_a"
+  },
+  {
+    "label": "V4-B",
+    "command": "cmd_b"
+  },
+  {
+    "label": "V4-C",
+    "command": "cmd_c"
+  }
+]

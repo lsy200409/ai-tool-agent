@@ -32,10 +32,8 @@ async function fillResultsBack(session, resultMessage) {
   logPanel('info', '结果已发送，重新开始监听');
   if (autoMode) {
     autoWatchRunning = true;
-    startAutoWatchInInjected();
-    setStageText('自动监听中');
+    if (typeof window.__ds_startMonitor === 'function') window.__ds_startMonitor();
+    setStageText('监听中');
     updateAutoButtonState();
-    var submitBtn = document.getElementById('__ds-btn-submit');
-    if (submitBtn) { submitBtn.textContent = '⏹ 停止监听'; submitBtn.className = '__ds-btn __ds-btn-stop'; }
   } else { setStageText('等待用户发送'); }
 }

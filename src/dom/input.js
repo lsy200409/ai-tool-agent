@@ -24,13 +24,42 @@ function setInputValue(element, value) {
   try { element.value = ''; } catch(e) {}
   try { document.execCommand('selectAll'); } catch(e) {}
   try { document.execCommand('delete'); } catch(e) {}
+
+  var setSuccess = false;
+
   try {
-    var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
-    if (setter && setter.set) setter.set.call(element, value);
-    else element.value = value;
-  } catch(e) { element.value = value; }
+    var setter = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(element) || window.HTMLTextAreaElement.prototype,
+      'value'
+    );
+    if (setter && typeof setter.set === 'function') {
+      setter.call(element, value);
+      setSuccess = true;
+    }
+  } catch(e) {}
+
+  if (!setSuccess) {
+    try {
+      element.value = value;
+      setSuccess = true;
+    } catch(e) {}
+  }
+
+  if (!setSuccess) {
+    try {
+      document.execCommand('insertText', false, value);
+      setSuccess = true;
+    } catch(e) {}
+  }
+
   element.dispatchEvent(new Event('input', { bubbles: true }));
   element.dispatchEvent(new Event('change', { bubbles: true }));
+
+  var nativeSet = new InputEvent('input', {
+    bubbles: true, cancelable: true, composed: true,
+    data: value, inputType: 'insertText'
+  });
+  element.dispatchEvent(nativeSet);
 }
 
 function findSendButton() {

@@ -1,246 +1,1014 @@
-function injectOperationPanel() {
-  if (panelInstance) return;
-  var panel = document.createElement('div');
-  panel.id = '__ds-tool-panel';
-  panel.innerHTML = buildPanelHTML() + buildPanelCSS();
-  document.body.appendChild(panel);
-  panelInstance = panel;
-  bindPanelEvents(panel);
-  makeDraggable(panel);
-  setupResizeHandling(panel);
-  loadFileBrowser();
-  checkServerStatus();
-  setTimeout(function() { checkServerStatus(); }, 3000);
-  setInterval(function() { checkServerStatus(); }, 60000);
+// ============================================================
+// DeepSeek Tool Agent v2.5 — Panel UI (Chromium-native styling)
+// Design tokens from chromium-ui-react (--cr-* variables)
+// Layout: dual-column (Tools&Skills | Live Logs) + bottom bar
+// Pure vanilla JS — no framework dependency
+// NOTE: agentTools/agentSkills/executionHistory 在 state.js 中声明
+// ============================================================
+
+var agentPersonality = null;
+var agentCustomSkills = [];
+var quickActions = [];
+var logLevelFilter = 'all';
+var autoScroll = true;
+var petDragging = false;
+var petOffsetX = 0;
+var petOffsetY = 0;
+var petDragStartX = 0;
+var petDragStartY = 0;
+var panelVisible = false;
+
+// ============================================================
+// CSS — Chromium design tokens (--cr-*) + component styles
+// ============================================================
+function injectPanelCSS() {
+  var s = document.getElementById('__ds-agent-css');
+  if (s) return;
+  s = document.createElement('style');
+  s.id = '__ds-agent-css';
+  s.textContent = [
+    '/* ===== Chromium Design Tokens ===== */',
+    ':root {',
+    '  --cr-fallback-color-primary:#1a73e8;',
+    '  --cr-fallback-color-on-primary:#fff;',
+    '  --cr-fallback-color-surface:#fff;',
+    '  --cr-fallback-color-surface-1:#f8f9fa;',
+    '  --cr-fallback-color-surface-variant:#eee;',
+    '  --cr-fallback-color-on-surface:#202124;',
+    '  --cr-fallback-color-on-surface-subtle:#5f6368;',
+    '  --cr-fallback-color-outline:#dadce0;',
+    '  --cr-fallback-color-error:#d93025;',
+    '  --cr-fallback-color-disabled-background:#f1f3f4;',
+    '  --cr-fallback-color-disabled-foreground:#bdc1c6;',
+    '  --google-blue-500:#4285f4;',
+    '  --google-green-600:#1e8e3e;',
+    '  --google-red-600:#d93025;',
+    '  --google-yellow-400:#fcc934;',
+    '  --google-grey-500:#9aa0a6;',
+    '  --cr-space-1:4px;--cr-space-2:8px;--cr-space-3:12px;',
+    '  --cr-space-4:16px;--cr-space-5:20px;--cr-space-6:24px;',
+    '  --cr-space-8:32px;--cr-space-10:40px;',
+    '  --cr-radius-xs:2px;--cr-radius-sm:4px;--cr-radius-md:8px;',
+    '  --cr-radius-lg:16px;--cr-radius-xl:24px;--cr-radius-full:100px;',
+    '  --cr-font-family:"Roboto","Segoe UI",system-ui,-apple-system,sans-serif;',
+    '  --cr-font-size-xs:11px;--cr-font-size-sm:12px;--cr-font-size-md:13px;',
+    '  --cr-font-size-base:14px;--cr-font-size-lg:16px;--cr-font-size-xl:20px;',
+    '  --cr-elevation-1:0 1px 2px rgba(60,64,67,.3),0 1px 3px 1px rgba(60,64,67,.15);',
+    '  --cr-elevation-2:0 1px 2px rgba(60,64,67,.3),0 2px 6px 2px rgba(60,64,67,.15);',
+    '  --cr-elevation-3:0 1px 3px rgba(60,64,67,.3),0 4px 8px 3px rgba(60,64,67,.15);',
+    '  --cr-elevation-5:0 1px 4px rgba(60,64,67,.3),0 8px 24px 6px rgba(60,64,67,.15);',
+    '  --cr-transition-duration:80ms;',
+    '}',
+    '@media (prefers-color-scheme: dark) {',
+    '  :root {',
+    '    --cr-fallback-color-surface:#202124;',
+    '    --cr-fallback-color-surface-1:#292a2d;',
+    '    --cr-fallback-color-surface-variant:#3c4043;',
+    '    --cr-fallback-color-on-surface:#e8eaed;',
+    '    --cr-fallback-color-on-surface-subtle:#9aa0a6;',
+    '    --cr-fallback-color-outline:#5f6368;',
+    '    --cr-fallback-color-disabled-background:#2d2e30;',
+    '    --cr-fallback-color-disabled-foreground:#80868b;',
+    '  }',
+    '  #__ds-agent-panel{background:#202124 !important;border-color:#5f6368}',
+    '  #__ds-header{background:#292a2d;border-color:#5f6368}',
+    '  #__ds-header-left,#__ds-header-left *{color:#e8eaed}',
+    '  #__ds-col-left{border-color:#5f6368;background:#202124}',
+    '  #__ds-col-right{background:#202124}',
+    '  .ds-col-header{background:#202124;border-color:#5f6368}',
+    '  .ds-col-title{color:#e8eaed}',
+    '  .ds-tool-list{background:#202124}',
+    '  .ds-tool-card{background:#202124}',
+    '  .ds-tool-card:hover{background:#292a2d}',
+    '  .ds-tool-name{color:#e8eaed}',
+    '  .ds-tool-desc{color:#9aa0a6}',
+    '  .ds-tool-mode.ds-mode-off{background:#3c4043;color:#9aa0a6}',
+    '  .ds-skills-list{background:#202124}',
+    '  .ds-skill-row{background:#202124}',
+    '  .ds-skill-row:hover{background:#292a2d}',
+    '  .ds-skill-name{color:#e8eaed}',
+    '  .ds-search-input{background:#292a2d;color:#e8eaed;border-color:#5f6368}',
+    '  #__ds-log-area{background:#202124;color:#e8eaed}',
+    '  .ds-log-entry:hover{background:#292a2d}',
+    '  .ds-log-msg{color:#e8eaed}',
+    '  .ds-log-tab{color:#9aa0a6}',
+    '  .ds-log-tab:hover{background:#292a2d;color:#e8eaed}',
+    '  .ds-log-toolbar{background:#202124}',
+    '  .ds-log-scroll-btn{background:#292a2d;border-color:#5f6368;color:#9aa0a6}',
+    '  #__ds-bottom-bar{background:#202124;border-color:#5f6368}',
+    '  .ds-qbtn{background:#292a2d;border-color:#5f6368;color:#e8eaed}',
+    '  .ds-log-tb-btn{background:#292a2d;border-color:#5f6368;color:#e8eaed}',
+    '  .ds-add-skill-btn{color:#9aa0a6}',
+    '  .ds-more-btn{color:#9aa0a6}',
+    '  #__ds-status{background:#292a2d;border-color:#5f6368}',
+    '  #__ds-status-text{color:#9aa0a6}',
+    '  #__ds-status-line{color:#9aa0a6}',
+    '  .ds-toggle-pill.off{background:#3c4043}',
+    '  .ds-form-input{background:#292a2d;color:#e8eaed;border-color:#5f6368}',
+    '  .ds-form-label{color:#9aa0a6}',
+    '  .ds-qa-entry{background:#292a2d;border-color:#5f6368}',
+    '  .ds-btn-secondary{background:#292a2d;color:#e8eaed}',
+    '  .ds-btn-secondary:hover{background:#3c4043}',
+    '  .ds-modal{background:#202124;border-color:#5f6368;color:#e8eaed}',
+    '  .ds-modal-title{color:#e8eaed}',
+    '  .ds-badge-info{background:#1a3a5c;color:#8ab4f8}',
+    '  .ds-badge-warn{background:#3c2e00;color:#fdd663}',
+    '  .ds-badge-error{background:#3c1a1a;color:#f28b82}',
+    '  .ds-badge-success{background:#1a3c1a;color:#81c995}',
+    '}',
+
+    '/* ===== Reset & Panel Container ===== */',
+    '#__ds-agent-panel *{box-sizing:border-box;margin:0;padding:0}',
+    '#__ds-agent-panel{',
+    '  position:fixed;bottom:120px;right:20px;z-index:2147483640;',
+    '  width:680px;height:440px;background:#fff;',
+    '  border:1px solid #dadce0;border-radius:12px;',
+    '  font-family:"Roboto","Segoe UI",system-ui,sans-serif;font-size:13px;',
+    '  color:#202124;display:none !important;overflow:hidden;',
+    '  box-shadow:0 4px 8px 3px rgba(60,64,67,.15),0 1px 3px 1px rgba(60,64,67,.3);',
+    '}',
+    '#__ds-agent-panel.visible{display:flex !important;flex-direction:column}',
+
+    '/* ===== Header ===== */',
+    '#__ds-header{',
+    '  display:flex;align-items:center;justify-content:space-between;',
+    '  padding:var(--cr-space-3) var(--cr-space-4);',
+    '  border-bottom:1px solid var(--cr-fallback-color-outline);',
+    '  background:var(--cr-fallback-color-surface-1);flex-shrink:0;',
+    '  cursor:grab;user-select:none;',
+    '}',
+    '#__ds-header:active{cursor:grabbing}',
+    '#__ds-header-left{display:flex;align-items:center;gap:var(--cr-space-2)}',
+    '#__ds-logo{font-size:var(--cr-font-size-base);font-weight:700;color:var(--google-blue-500)}',
+    '#__ds-title{font-weight:500;font-size:var(--cr-font-size-base)}',
+    '#__ds-version{font-size:var(--cr-font-size-xs);color:var(--cr-fallback-color-on-surface-subtle);',
+    '  padding:1px 6px;border-radius:var(--cr-radius-sm);background:var(--cr-fallback-color-surface-variant)}',
+    '#__ds-status{',
+    '  display:flex;align-items:center;gap:6px;padding:3px 10px;',
+    '  border:1px solid var(--cr-fallback-color-outline);border-radius:var(--cr-radius-full);',
+    '  font-size:var(--cr-font-size-xs);',
+    '}',
+    '#__ds-dot{width:8px;height:8px;border-radius:50%;background:var(--google-grey-500);transition:background .2s}',
+    '#__ds-dot.online{background:var(--google-green-600)}',
+    '#__ds-dot.offline{background:var(--google-red-600)}',
+    '#__ds-status-text{color:var(--cr-fallback-color-on-surface-subtle)}',
+    '#__ds-header-btns{display:flex;align-items:center;gap:2px}',
+    '.ds-hbtn{',
+    '  width:28px;height:28px;border:1px solid transparent;border-radius:var(--cr-radius-sm);',
+    '  background:none;cursor:pointer;font-size:16px;display:flex;align-items:center;',
+    '  justify-content:center;color:var(--cr-fallback-color-on-surface-subtle);',
+    '  transition:all var(--cr-transition-duration);',
+    '}',
+    '.ds-hbtn:hover{border-color:var(--cr-fallback-color-outline);background:var(--cr-fallback-color-surface-1)}',
+
+    '/* ===== Body: Dual Column Layout ===== */',
+    '#__ds-body{display:flex;flex:1;overflow:hidden;min-height:0}',
+    '#__ds-col-left{width:55%;display:flex;flex-direction:column;border-right:1px solid var(--cr-fallback-color-outline);overflow-y:auto}',
+    '#__ds-col-right{width:45%;display:flex;flex-direction:column;overflow:hidden}',
+
+    '/* Column Headers */',
+    '.ds-col-header{',
+    '  display:flex;align-items:center;justify-content:space-between;',
+    '  padding:var(--cr-space-3) var(--cr-space-4);',
+    '  border-bottom:1px solid var(--cr-fallback-color-outline);flex-shrink:0;',
+    '  background:var(--cr-fallback-color-surface);',
+    '}',
+    '.ds-col-title{font-size:var(--cr-font-size-lg);font-weight:500}',
+    '.ds-search-wrap{position:relative;width:160px}',
+    '.ds-search-input{',
+    '  width:100%;padding:5px 10px 5px 28px;border:1px solid var(--cr-fallback-color-outline);',
+    '  border-radius:var(--cr-radius-full);font-size:var(--cr-font-size-sm);',
+    '  background:var(--cr-fallback-color-surface);outline:none;',
+    '}',
+    '.ds-search-input:focus{border-color:var(--cr-fallback-color-primary)}',
+    '.ds-search-icon{position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--cr-fallback-color-on-surface-subtle)}',
+    '.ds-more-btn{background:none;border:none;font-size:18px;cursor:pointer;color:var(--cr-fallback-color-on-surface-subtle);padding:2px 6px;border-radius:var(--cr-radius-sm)}',
+    '.ds-more-btn:hover{background:var(--cr-fallback-color-surface-1)}',
+
+    /* Tool Cards */
+    '.ds-tool-list{padding:var(--cr-space-2) var(--cr-space-3);display:flex;flex-direction:column;gap:1px}',
+    '.ds-tool-card{',
+    '  display:flex;align-items:center;gap:var(--cr-space-3);padding:var(--cr-space-3);',
+    '  border-radius:var(--cr-radius-md);cursor:pointer;transition:background var(--cr-transition-duration);',
+    '}',
+    '.ds-tool-card:hover{background:var(--cr-fallback-color-surface-1)}',
+    '.ds-tool-icon{font-size:18px;width:24px;text-align:center;flex-shrink:0}',
+    '.ds-tool-info{flex:1;min-width:0}',
+    '.ds-tool-name{font-size:var(--cr-font-size-base);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.ds-tool-desc{font-size:var(--cr-font-size-xs);color:var(--cr-fallback-color-on-surface-subtle);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}',
+    '.ds-tool-mode{',
+    '  font-size:var(--cr-font-size-xs);font-weight:600;padding:2px 10px;border-radius:var(--cr-radius-sm);',
+    '  cursor:pointer;user-select:none;flex-shrink:0;transition:all var(--cr-transition-duration);',
+    '  letter-spacing:.5px;',
+    '}',
+    '.ds-mode-auto{color:var(--google-blue-500);background:#e8f0fe}',
+    '.ds-mode-manual{color:var(--google-yellow-400);background:#fef7e0}',
+    '.ds-mode-off{color:var(--cr-fallback-color-on-surface-subtle);background:var(--cr-fallback-color-surface-variant)}',
+    '.ds-tool-add{font-size:18px;color:var(--cr-fallback-color-on-surface-subtle);cursor:pointer;width:20px;text-align:center}',
+
+    /* Skills */
+    '.ds-skills-list{padding:var(--cr-space-2) var(--cr-space-3)}',
+    '.ds-skill-row{',
+    '  display:flex;align-items:center;justify-content:space-between;',
+    '  padding:var(--cr-space-2) var(--cr-space-3);border-radius:var(--cr-radius-sm);',
+    '}',
+    '.ds-skill-row:hover{background:var(--cr-fallback-color-surface-1)}',
+    '.ds-skill-name{font-size:var(--cr-font-size-sm);font-weight:500}',
+    '.ds-skill-toggle{',
+    '  display:flex;align-items:center;gap:6px;cursor:pointer;',
+    '}',
+    '.ds-toggle-pill{',
+    '  width:32px;height:18px;border-radius:var(--cr-radius-full);position:relative;',
+    '  transition:background var(--cr-transition-duration);border:none;cursor:pointer;',
+    '}',
+    '.ds-toggle-pill.on{background:var(--google-blue-500)}',
+    '.ds-toggle-pill.off{background:var(--cr-fallback-color-surface-variant)}',
+    '.ds-toggle-knob{',
+    '  position:absolute;top:2px;width:14px;height:14px;border-radius:50%;',
+    '  background:#fff;transition:transform var(--cr-transition-duration);box-shadow:0 1px 2px rgba(0,0,0,.2)',
+    '}',
+    '.ds-toggle-pill.on .ds-toggle-knob{transform:translateX(14px)}',
+    '.ds-add-skill-btn{',
+    '  display:flex;align-items:center;gap:4px;margin:var(--cr-space-2) var(--cr-space-3);',
+    '  padding:var(--cr-space-2) var(--cr-space-3);border:1px dashed var(--cr-fallback-color-outline);',
+    '  border-radius:var(--cr-radius-sm);font-size:var(--cr-font-size-sm);color:var(--cr-fallback-color-on-surface-subtle);',
+    '  background:none;cursor:pointer;width:calc(100% - var(--cr-space-6));',
+    '}',
+    '.ds-add-skill-btn:hover{background:var(--cr-fallback-color-surface-1);border-color:var(--cr-fallback-color-primary)}',
+
+    /* Right column: Logs */
+    '#__ds-log-tabs{display:flex;gap:2px;padding:var(--cr-space-2) var(--cr-space-4) 0}',
+    '.ds-log-tab{',
+    '  padding:4px 12px;border:none;background:none;font-size:var(--cr-font-size-sm);',
+    '  color:var(--cr-fallback-color-on-surface-subtle);cursor:pointer;border-radius:var(--cr-radius-sm);',
+    '  font-weight:500;transition:all var(--cr-transition-duration);',
+    '}',
+    '.ds-log-tab:hover{background:var(--cr-fallback-color-surface-1)}',
+    '.ds-log-tab.active{',
+    '  background:var(--google-blue-500);color:#fff;',
+    '}',
+    '.ds-log-toolbar{',
+    '  display:flex;align-items:center;justify-content:space-between;',
+    '  padding:var(--cr-space-2) var(--cr-space-4);',
+    '}',
+    '.ds-log-tb-btn{',
+    '  padding:3px 12px;border:1px solid var(--cr-fallback-color-outline);',
+    '  border-radius:var(--cr-radius-sm);background:var(--cr-fallback-color-surface);',
+    '  font-size:var(--cr-font-size-xs);cursor:pointer;color:var(--cr-fallback-color-on-surface);',
+    '}',
+    '.ds-log-tb-btn:hover{background:var(--cr-fallback-color-surface-1);border-color:var(--cr-fallback-color-primary)}',
+    '#__ds-log-area{',
+    '  flex:1;overflow-y:auto;padding:var(--cr-space-2) var(--cr-space-4);',
+    '  font-size:var(--cr-font-size-xs);line-height:1.65;font-family:var(--cr-font-family);',
+    '}',
+    '.ds-log-entry{padding:2px 0;border-bottom:1px solid transparent;display:flex;gap:6px}',
+    '.ds-log-entry:hover{background:var(--cr-fallback-color-surface-1)}',
+    '.ds-log-time{color:var(--cr-fallback-color-on-surface-subtle);flex-shrink:0}',
+    '.ds-log-badge{',
+    '  padding:0 6px;border-radius:2px;font-size:10px;font-weight:700;flex-shrink:0;',
+    '  text-transform:uppercase;letter-spacing:.5px;',
+    '}',
+    '.ds-badge-info{background:#e8f0fe;color:var(--google-blue-500)}',
+    '.ds-badge-warn{background:#fef7e0;color:#b06000}',
+    '.ds-badge-error{background:#fce8e6;color:var(--google-red-600)}',
+    '.ds-badge-success{background:#e6f4ea;color:var(--google-green-600)}',
+    '.ds-log-msg{color:var(--cr-fallback-color-on-surface);word-break:break-word}',
+    '.ds-log-scroll-btn{',
+    '  display:flex;align-items:center;justify-content:center;gap:4px;',
+    '  padding:4px;border-top:1px solid var(--cr-fallback-color-outline);',
+    '  background:var(--cr-fallback-color-surface-1);font-size:var(--cr-font-size-xs);',
+    '  color:var(--cr-fallback-color-on-surface-subtle);cursor:pointer;',
+    '}',
+    '.ds-log-scroll-btn.active{color:var(--google-blue-500)}',
+
+    /* Bottom bar */
+    '#__ds-bottom-bar{',
+    '  display:flex;align-items:center;justify-content:space-between;',
+    '  padding:var(--cr-space-2) var(--cr-space-4);',
+    '  border-top:1px solid var(--cr-fallback-color-outline);',
+    '  background:var(--cr-fallback-color-surface);flex-shrink:0;',
+    '}',
+    '#__ds-quick-btns{display:flex;gap:6px;flex:1}',
+    '.ds-qbtn{',
+    '  display:flex;align-items:center;gap:4px;padding:5px 12px;',
+    '  border:1px solid var(--cr-fallback-color-outline);border-radius:var(--cr-radius-full);',
+    '  background:var(--cr-fallback-color-surface);font-size:var(--cr-font-size-xs);',
+    '  cursor:pointer;color:var(--cr-fallback-color-on-surface);white-space:nowrap;',
+    '  transition:all var(--cr-transition-duration);',
+    '}',
+    '.ds-qbtn:hover{border-color:var(--cr-fallback-color-primary);background:#e8f0fe}',
+    '.ds-qbtn-icon{font-size:13px}',
+    '#__ds-status-line{',
+    '  display:flex;align-items:center;gap:6px;font-size:var(--cr-font-size-xs);',
+    '  color:var(--cr-fallback-color-on-surface-subtle);flex-shrink:0;',
+    '}',
+    '#__ds-status-line .ds-online{color:var(--google-green-600);font-weight:600}',
+    '.ds-edit-btn{',
+    '  width:26px;height:26px;border:1px solid var(--cr-fallback-color-outline);',
+    '  border-radius:50%;background:none;cursor:pointer;font-size:12px;',
+    '  display:flex;align-items:center;justify-content:center;',
+    '  color:var(--cr-fallback-color-on-surface-subtle);margin-left:6px;',
+    '}',
+    '.ds-edit-btn:hover{background:var(--cr-fallback-color-surface-1)}',
+
+    /* Modal */
+
+    /* Pet ball */
+    '#__ds-pet-ball{',
+    '  position:fixed;bottom:20px;right:20px;width:40px;height:40px;',
+    '  background:#1a73e8;color:#fff;border-radius:50%;',
+    '  display:flex;align-items:center;justify-content:center;',
+    '  font-size:11px;font-weight:700;cursor:grab;z-index:2147483639;',
+    '  box-shadow:0 2px 6px 2px rgba(60,64,67,.15),0 1px 3px 1px rgba(60,64,67,.3);',
+    '  user-select:none;transition:transform .15s;',
+    '}',
+    '#__ds-pet-ball:active{cursor:grabbing}',
+    '#__ds-pet-ball.visible{transform:scale(0);pointer-events:none}',
+
+    /* Modal */
+    '.ds-modal-overlay{',
+    '  position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:2147483647;',
+    '  display:none;align-items:center;justify-content:center;',
+    '}',
+    '.ds-modal-overlay.show{display:flex;padding:20px}',
+    '.ds-modal{',
+    '  background:var(--cr-fallback-color-surface);border:1px solid var(--cr-fallback-color-outline);',
+    '  border-radius:var(--cr-radius-lg);padding:var(--cr-space-5);width:420px;max-height:70vh;',
+    '  overflow-y:auto;position:relative;box-shadow:var(--cr-elevation-5);z-index:1;',
+    '}',
+    '.ds-modal-title{font-size:var(--cr-font-size-lg);font-weight:500;margin-bottom:var(--cr-space-4)}',
+    '.ds-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:var(--cr-space-4)}',
+    '.ds-form-group{margin-bottom:var(--cr-space-3)}',
+    '.ds-form-label{display:block;font-size:var(--cr-font-size-xs);font-weight:500;margin-bottom:4px;color:var(--cr-fallback-color-on-surface-subtle)}',
+    '.ds-form-input{',
+    '  width:100%;padding:7px 10px;border:1px solid var(--cr-fallback-color-outline);',
+    '  border-radius:var(--cr-radius-sm);font-size:var(--cr-font-size-sm);',
+    '  background:var(--cr-fallback-color-surface);outline:none;font-family:inherit;',
+    '}',
+    '.ds-form-input:focus{border-color:var(--cr-fallback-color-primary)}',
+    '.ds-btn{',
+    '  padding:6px 16px;border:1px solid var(--cr-fallback-color-outline);',
+    '  border-radius:var(--cr-radius-sm);font-size:var(--cr-font-size-sm);cursor:pointer;',
+    '  font-family:inherit;transition:all var(--cr-transition-duration);',
+    '}',
+    '.ds-btn-primary{background:var(--google-blue-500);color:#fff;border-color:var(--google-blue-500)}',
+    '.ds-btn-secondary{background:var(--cr-fallback-color-surface);color:var(--cr-fallback-color-on-surface)}',
+    '.ds-btn-secondary:hover{background:var(--cr-fallback-color-surface-1)}',
+    '.ds-btn-sm{padding:4px 12px;font-size:var(--cr-font-size-xs)}',
+    '.ds-qa-entry{border:1px solid var(--cr-fallback-color-outline);padding:var(--cr-space-3);border-radius:var(--cr-radius-sm);margin-bottom:var(--cr-space-2)}',
+  ].join('\n');
+  document.head.appendChild(s);
 }
 
-function setupResizeHandling(panel) {
-  var ro = new ResizeObserver(function() {
-    var body = document.getElementById('__ds-panel-body');
-    var main = document.getElementById('__ds-panel-main');
-    if (body && main) {
-      var h = panel.clientHeight;
-      if (h < 200) return;
-    }
-  });
-  ro.observe(panel);
+// ============================================================
+// HTML — Dual-column layout
+// ============================================================
+function injectPanelHTML() {
+  if (document.getElementById('__ds-agent-panel')) return;
+
+  // Pet ball
+  var pet = document.createElement('div');
+  pet.id = '__ds-pet-ball';
+  pet.textContent = '[DS]';
+  pet.title = 'DS-Agent v2.5';
+  pet.addEventListener('mousedown', startPetDrag);
+  document.body.appendChild(pet);
+
+  // Main panel
+  var panel = document.createElement('div');
+  panel.id = '__ds-agent-panel';
+  panel.innerHTML = buildPanelHTML();
+  document.body.appendChild(panel);
+
+  // Modal overlay (contains QA modal)
+  var overlay = document.createElement('div');
+  overlay.id = '__ds-modal-overlay';
+  overlay.className = 'ds-modal-overlay';
+  overlay.innerHTML = buildQAModalHTML();
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) hideAllModals(); });
+  document.body.appendChild(overlay);
+
+  bindPanelEvents();
 }
 
 function buildPanelHTML() {
-  return '<div id="__ds-panel-header">' +
-    '<div class="__ds-header-left"><span class="__ds-header-icon">🛠️</span><span class="__ds-header-title">DeepSeek Agent</span></div>' +
-    '<div class="__ds-header-right">' +
-    '<span id="__ds-panel-status-dot" class="__ds-status-disconnected" title="服务器状态"></span>' +
-    '<span id="__ds-btn-settings" class="__ds-icon-btn" title="设置工作区">⚙️</span>' +
-    '<span id="__ds-panel-toggle" class="__ds-icon-btn" title="折叠/展开">−</span></div></div>' +
-    '<div id="__ds-panel-body">' +
-    '<div id="__ds-task-input-area"><textarea id="__ds-task-input" class="__ds-task-textarea" placeholder="在此输入你的任务...&#10;例如：帮我分析 workspace 目录下的文件结构"></textarea></div>' +
-    '<div id="__ds-panel-main">' +
-    '<div id="__ds-panel-left" class="__ds-file-browser-panel">' +
-    '<div class="__ds-section-header"><span>📂 文件浏览器</span>' +
-    '<div class="__ds-section-actions"><span id="__ds-btn-toggle-files" class="__ds-icon-btn-sm" title="折叠文件浏览器">◀</span><span id="__ds-btn-refresh-files" class="__ds-icon-btn-sm" title="刷新">🔄</span><span id="__ds-btn-goto-workspace" class="__ds-icon-btn-sm" title="回到工作区">🏠</span></div></div>' +
-    '<div class="__ds-file-browser-content">' +
-    '<div id="__ds-workspace-bar"><span id="__ds-workspace-path" class="__ds-workspace-path-text"></span></div>' +
-    '<div id="__ds-file-tree"></div>' +
-    '<div id="__ds-file-preview" class="__ds-hidden"><div class="__ds-preview-header"><span id="__ds-preview-filename"></span><span id="__ds-btn-close-preview" class="__ds-icon-btn-sm">✕</span></div><pre id="__ds-preview-content"></pre></div>' +
-    '</div></div>' +
-    '<div id="__ds-panel-right">' +
-    '<div class="__ds-section-header"><span>📋 执行历史</span>' +
-    '<div class="__ds-section-actions"><span id="__ds-btn-view-logs" class="__ds-icon-btn-sm" title="查看原始日志">📄</span><span id="__ds-btn-export-logs" class="__ds-icon-btn-sm" title="导出日志文件">📥</span><span id="__ds-btn-clear-history" class="__ds-icon-btn-sm" title="清空历史">🗑️</span></div></div>' +
-    '<div id="__ds-history-list"><div class="__ds-history-empty">等待任务执行...</div></div>' +
-    '<div id="__ds-log-preview" style="display:none;padding:6px 8px;border-top:1px solid rgba(0,0,0,0.08);max-height:150px;overflow:auto;">' +
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><span style="font-size:10px;color:#8a857c;font-weight:600;">原始日志 (最近100条)</span><span id="__ds-btn-close-log-preview" class="__ds-icon-btn-sm" style="cursor:pointer;font-size:12px;" title="关闭">✕</span></div>' +
-    '<pre id="__ds-log-preview-area" style="font-size:9px;line-height:1.5;color:#5a564e;white-space:pre-wrap;word-break:break-all;margin:0;font-family:monospace;"></pre></div>' +
-    '</div></div>' +
-    '<div id="__ds-panel-bottom">' +
-    '<div id="__ds-control-bar">' +
-    '<button id="__ds-btn-inject" class="__ds-btn __ds-btn-inject" title="仅注入工具提示词到输入框，不发送">💉 注入提示词</button>' +
-    '<button id="__ds-btn-submit" class="__ds-btn __ds-btn-submit" title="将任务填入DeepSeek输入框并发送，自动开启监听">🚀 发送任务</button>' +
-    '<button id="__ds-btn-restart" class="__ds-btn __ds-btn-restart" title="重启工具服务器">🔄 重启服务</button>' +
-    '<button id="__ds-btn-reset" class="__ds-btn __ds-btn-reset" title="重置会话状态">重置</button></div>' +
-    '<div id="__ds-status-bar">' +
-    '<span id="__ds-status-server" class="__ds-status-item"><span class="__ds-status-label">服务器:</span> <span id="__ds-server-text">检测中...</span></span>' +
-    '<span id="__ds-status-session" class="__ds-status-item"><span class="__ds-status-label">会话:</span> <span id="__ds-session-text">空闲</span></span>' +
-    '<span id="__ds-status-stage" class="__ds-status-item"><span class="__ds-status-label">阶段:</span> <span id="__ds-stage-text">就绪</span></span></div></div></div>' +
-    buildSettingsModal();
+  return [
+    '<div id="__ds-header">',
+    '  <div id="__ds-header-left">',
+    '    <span id="__ds-logo" class="ds-logo">[DS]</span>',
+    '    <span id="__ds-title">Agent</span>',
+    '    <span id="__ds-version">v2.5</span>',
+    '  </div>',
+    '  <div id="__ds-status">',
+    '    <span id="__ds-dot"></span>',
+    '    <span id="__ds-status-text">Checking...</span>',
+    '  </div>',
+    '  <div id="__ds-header-btns">',
+    '    <button class="ds-hbtn" id="__ds-btn-minimize" title="Minimize">&#8722;</button>',
+    '    <button class="ds-hbtn" id="__ds-btn-close" title="Close">&times;</button>',
+    '  </div>',
+    '</div>',
+
+    '<div id="__ds-body">',
+    '  <!-- Left Column: Tools & Skills -->',
+    '  <div id="__ds-col-left">',
+    '    <div class="ds-col-header">',
+    '      <span class="ds-col-title">Tools &amp; Skills</span>',
+    '      <div class="ds-search-wrap">',
+    '        <span class="ds-search-icon">&#128269;</span>',
+    '        <input class="ds-search-input" id="__ds-tool-search" placeholder="Search tools..." />',
+    '      </div>',
+    '    </div>',
+    '    <div class="ds-tool-list" id="__ds-tools-container"><div style="padding:16px;color:var(--cr-fallback-color-on-surface-subtle);text-align:center;">Loading...</div></div>',
+    '    <div class="ds-skills-list" id="__ds-skills-container"></div>',
+    '    <button class="ds-add-skill-btn" id="__ds-btn-add-skill">+ Add Skill</button>',
+    '  </div>',
+
+    '  <!-- Right Column: Live Logs -->',
+    '  <div id="__ds-col-right">',
+    '    <div class="ds-col-header">',
+    '      <span class="ds-col-title">Live Logs</span>',
+    '      <button class="ds-more-btn" id="__ds-btn-log-more">&#8943;</button>',
+    '    </div>',
+    '    <div id="__ds-log-tabs">',
+    '      <button class="ds-log-tab active" data-level="all">All</button>',
+    '      <button class="ds-log-tab" data-level="info">Info</button>',
+    '      <button class="ds-log-tab" data-level="warn">Warn</button>',
+    '      <button class="ds-log-tab" data-level="error">Error</button>',
+    '    </div>',
+    '    <div class="ds-log-toolbar">',
+    '      <span></span>',
+    '      <div style="display:flex;gap:6px;">',
+    '        <button class="ds-log-tb-btn" id="__ds-btn-export">Export</button>',
+    '        <button class="ds-log-tb-btn" id="__ds-btn-clear">Clear</button>',
+    '      </div>',
+    '    </div>',
+    '    <div id="__ds-log-area"><div style="padding:16px;color:var(--cr-fallback-color-on-surface-subtle);text-align:center;">No logs yet</div></div>',
+    '    <div class="ds-log-scroll-btn active" id="__ds-btn-autoscroll">&#8964; auto-scroll</div>',
+    '  </div>',
+    '</div>',
+
+    '<div id="__ds-bottom-bar">',
+    '  <div id="__ds-quick-btns"></div>',
+    '  <div id="__ds-status-line">',
+    '    <span id="__ds-agent-status-text">Agent Not Ready</span>',
+    '    <button class="ds-edit-btn" id="__ds-btn-edit-qa" title="Edit Quick Actions">&#9998;</button>',
+    '  </div>',
+    '</div>'
+  ].join('');
 }
 
-function buildSettingsModal() {
-  return '<div id="__ds-settings-overlay" class="__ds-modal-overlay __ds-hidden">' +
-    '<div id="__ds-settings-modal" class="__ds-modal">' +
-    '<div class="__ds-modal-header"><span>⚙️ 设置与服务管理</span><span id="__ds-btn-close-settings" class="__ds-icon-btn">✕</span></div>' +
-    '<div class="__ds-modal-body">' +
-    '<div class="__ds-settings-tabs"><span id="__ds-tab-workspace" class="__ds-settings-tab __ds-tab-active">工作区</span><span id="__ds-tab-launcher" class="__ds-settings-tab">服务管理</span></div>' +
-    '<div id="__ds-settings-workspace-panel" class="__ds-settings-panel">' +
-    '<div class="__ds-form-group"><label>工作区路径</label><input id="__ds-settings-workspace" class="__ds-form-input" type="text" placeholder="例如: F:\\桌面\\project 或 C:/Users/..."><div class="__ds-form-hint">设置AI可操作的文件目录，修改后重启服务器生效</div></div>' +
-    '<div class="__ds-form-group"><label>当前工作区</label><div id="__ds-settings-current" class="__ds-form-value"></div></div></div>' +
-    '<div id="__ds-settings-launcher-panel" class="__ds-settings-panel __ds-hidden">' +
-    '<div class="__ds-launcher-status-cards"><div class="__ds-launcher-card"><div class="__ds-launcher-card-icon">🔧</div><div><div class="__ds-launcher-card-label">服务进程</div><div id="__ds-launcher-card-status" class="__ds-launcher-card-value">检测中...</div></div></div>' +
-    '<div class="__ds-launcher-card"><div class="__ds-launcher-card-icon">🖥️</div><div><div class="__ds-launcher-card-label">工具服务器</div><div id="__ds-launcher-card-server" class="__ds-launcher-card-value">检测中...</div></div></div></div>' +
-    '<div id="__ds-launcher-details" class="__ds-launcher-details">' +
-    '<div class="__ds-launcher-detail-row"><span class="__ds-launcher-detail-label">PID</span><span id="__ds-launcher-detail-pid" class="__ds-launcher-detail-value">-</span></div>' +
-    '<div class="__ds-launcher-detail-row"><span class="__ds-launcher-detail-label">运行时长</span><span id="__ds-launcher-detail-uptime" class="__ds-launcher-detail-value">-</span></div>' +
-    '<div class="__ds-launcher-detail-row"><span class="__ds-launcher-detail-label">重启次数</span><span id="__ds-launcher-detail-restarts" class="__ds-launcher-detail-value">-</span></div>' +
-    '<div class="__ds-launcher-detail-row"><span class="__ds-launcher-detail-label">服务器 PID</span><span id="__ds-launcher-detail-server-pid" class="__ds-launcher-detail-value">-</span></div></div>' +
-    '<div class="__ds-launcher-actions">' +
-    '<button id="__ds-btn-launcher-start" class="__ds-btn-launcher-action __ds-btn-l-start">▶ 启动启动器</button>' +
-    '<button id="__ds-btn-launcher-stop" class="__ds-btn-launcher-action __ds-btn-l-stop">⏹ 停止启动器</button>' +
-    '<button id="__ds-btn-launcher-restart" class="__ds-btn-launcher-action __ds-btn-l-restart">🔄 重启全部</button>' +
-    '<button id="__ds-btn-launcher-refresh" class="__ds-btn-launcher-action __ds-btn-l-refresh">刷新</button></div>' +
-    '<div class="__ds-launcher-log"><div class="__ds-launcher-log-header">操作记录</div><div id="__ds-launcher-log-content" class="__ds-launcher-log-content">等待操作...</div></div></div></div>' +
-    '<div class="__ds-modal-footer"><button id="__ds-btn-save-settings" class="__ds-btn __ds-btn-primary">保存并重启服务器</button><button id="__ds-btn-cancel-settings" class="__ds-btn __ds-btn-secondary">取消</button></div></div></div>';
+function buildQAModalHTML() {
+  return [
+    '<div id="__ds-qa-modal" class="ds-modal" style="display:none;">',
+    '  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">',
+    '    <div class="ds-modal-title">Edit Quick Actions (max 5)</div>',
+    '    <button class="ds-hbtn" id="__ds-qa-close" style="font-size:14px;">&times;</button>',
+    '  </div>',
+    '  <div id="__ds-qa-entries"></div>',
+    '  <div class="ds-modal-actions">',
+    '    <button class="ds-btn ds-btn-secondary ds-btn-sm" id="__ds-qa-cancel">Cancel</button>',
+    '    <button class="ds-btn ds-btn-primary ds-btn-sm" id="__ds-qa-save">Save</button>',
+    '  </div>',
+    '</div>'
+  ].join('');
 }
 
-function buildPanelCSS() {
-  var css = '<style>#__ds-tool-panel{position:fixed;top:60px;right:16px;width:680px;height:520px;background:#ffffff;border:1px solid rgba(0,0,0,0.08);border-radius:12px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;font-size:13px;color:#3a3632;z-index:999999;box-shadow:0 8px 32px rgba(0,0,0,0.12);overflow:hidden;display:flex;flex-direction:column;resize:both;min-width:480px;min-height:360px;}';
-  css += '#__ds-tool-panel.__ds-collapsed{height:42px;min-height:42px;resize:none;}#__ds-tool-panel.__ds-collapsed #__ds-panel-body{display:none;}';
-  css += '#__ds-panel-header{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;background:rgba(0,0,0,0.03);cursor:move;user-select:none;border-bottom:1px solid rgba(0,0,0,0.06);flex-shrink:0;}';
-  css += '.__ds-header-left{display:flex;align-items:center;gap:8px;}.__ds-header-icon{font-size:16px;}.__ds-header-title{font-weight:600;font-size:14px;color:#3a3632;}';
-  css += '.__ds-header-right{display:flex;align-items:center;gap:6px;}.__ds-icon-btn{cursor:pointer;font-size:16px;padding:2px 6px;border-radius:4px;transition:background 0.2s;}';
-  css += '.__ds-icon-btn:hover{background:rgba(0,0,0,0.06);}.__ds-icon-btn-sm{cursor:pointer;font-size:13px;padding:1px 4px;border-radius:3px;transition:background 0.2s;}';
-  css += '.__ds-icon-btn-sm:hover{background:rgba(0,0,0,0.06);}#__ds-panel-body{display:flex;flex-direction:column;flex:1;overflow:hidden;}';
-  css += '#__ds-panel-main{display:flex;flex:1;overflow:hidden;gap:1px;background:#f8f6f2;}';
-  css += '#__ds-panel-left{width:45%;min-width:200px;display:flex;flex-direction:column;background:#f3f1ed;overflow:hidden;}';
-  css += '#__ds-panel-right{flex:1;min-width:200px;display:flex;flex-direction:column;background:#faf9f7;overflow:hidden;}';
-  css += '.__ds-section-header{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;font-size:12px;font-weight:600;color:#7a756c;border-bottom:1px solid rgba(0,0,0,0.07);flex-shrink:0;}';
-  css += '.__ds-section-actions{display:flex;align-items:center;gap:4px;}';
-  css += '.__ds-file-browser-content{display:flex;flex-direction:column;flex:1;overflow:hidden;}';
-  css += '.__ds-file-browser-panel.__ds-file-collapsed .__ds-file-browser-content{display:none;}';
-  css += '#__ds-workspace-bar{padding:4px 10px;font-size:11px;color:#8a857c;border-bottom:1px solid rgba(0,0,0,0.06);flex-shrink:0;}';
-  css += '.__ds-workspace-path-text{font-family:monospace;word-break:break-all;}';
-  css += '#__ds-file-tree{flex:1;overflow-y:auto;padding:4px 0;font-family:monospace;font-size:12px;}';
-  css += '#__ds-file-tree::-webkit-scrollbar{width:4px;}#__ds-file-tree::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.12);border-radius:2px;}';
-  css += '.__ds-file-item{display:flex;align-items:center;gap:4px;padding:3px 10px;cursor:pointer;transition:background 0.15s;white-space:nowrap;}';
-  css += '.__ds-file-item:hover{background:rgba(168,184,156,0.12);}';
-  css += '.__ds-file-item.__ds-file-selected{background:rgba(168,184,156,0.18);}';
-  css += '.__ds-file-icon{font-size:13px;flex-shrink:0;}.__ds-file-name{overflow:hidden;text-overflow:ellipsis;}';
-  css += '.__ds-file-size{font-size:10px;color:#9a948a;margin-left:auto;flex-shrink:0;}';
-  css += '.__ds-file-dir{color:#5a784c;}.__ds-file-dir .__ds-file-name{color:#5a784c;}';
-  css += '.__ds-file-loading{text-align:center;padding:20px;color:#9a948a;}';
-  css += '.__ds-file-error{text-align:center;padding:20px;color:#c49a8c;}';
-  css += '#__ds-file-preview{border-top:1px solid rgba(255,255,255,0.06);display:flex;flex-direction:column;max-height:35%;overflow:hidden;}';
-  css += '#__ds-file-preview.__ds-hidden{display:none;}';
-  css += '.__ds-preview-header{display:flex;justify-content:space-between;align-items:center;padding:4px 10px;background:rgba(0,0,0,0.03);font-size:11px;flex-shrink:0;}';
-  css += '#__ds-preview-content{flex:1;overflow:auto;padding:8px 10px;font-size:11px;line-height:1.5;margin:0;white-space:pre-wrap;word-break:break-all;color:#4a4640;}';
-  css += '.__ds-task-textarea{width:100%;height:58px;background:#f5f3ef;border:1px solid rgba(0,0,0,0.10);border-radius:6px;color:#3a3632;padding:8px 10px;font-size:12px;font-family:inherit;resize:vertical;outline:none;box-sizing:border-box;}';
-  css += '.__ds-task-textarea:focus{border-color:rgba(168,184,156,0.5);}';
-  css += '.__ds-file-browser-panel.__ds-file-collapsed{width:0!important;min-width:0!important;overflow:hidden;padding:0;}';
-  css += '#__ds-history-list{flex:1;overflow-y:auto;padding:6px;}';
-  css += '.__ds-history-empty{text-align:center;padding:30px 10px;color:#b0aba0;font-size:12px;}';
-  css += '.__ds-history-card{margin-bottom:6px;border-radius:6px;background:#f0ede8;border:1px solid rgba(0,0,0,0.08);overflow:hidden;}';
-  css += '.__ds-card-header{display:flex;align-items:center;gap:6px;padding:6px 8px;cursor:pointer;font-size:12px;transition:background 0.15s;}';
-  css += '.__ds-card-header:hover{background:rgba(0,0,0,0.04);}';
-  css += '.__ds-card-type-badge{font-size:10px;padding:1px 5px;border-radius:3px;font-weight:600;flex-shrink:0;}';
-  css += '.__ds-card-type-call{background:rgba(212,196,168,0.25);color:#8a7a4a;}';
-  css += '.__ds-card-type-output{background:rgba(168,184,156,0.2);color:#4a7a3a;}';
-  css += '.__ds-card-type-error{background:rgba(196,154,140,0.2);color:#a04030;}';
-  css += '.__ds-card-type-tool_detect{background:rgba(212,196,168,0.2);color:#8a7a4a;}';
-  css += '.__ds-card-type-task_send{background:rgba(168,184,156,0.18);color:#4a7a3a;}';
-  css += '.__ds-card-type-phase_complete{background:rgba(168,184,156,0.15);color:#5a8a4a;}';
-  css += '.__ds-card-type-inject{background:rgba(180,160,140,0.2);color:#8a6a40;}';
-  css += '.__ds-card-type-warn{background:rgba(200,170,120,0.2);color:#8a7030;}';
-  css += '.__ds-card-type-success{background:rgba(140,180,140,0.2);color:#3a7a3a;}';
-  css += '.__ds-card-type-info{background:rgba(150,160,180,0.15);color:#5a6580;}';
-  css += '.__ds-card-header-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;overflow:hidden;}';
-  css += '.__ds-card-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:#4a4640;}';
-  css += '.__ds-card-preview{font-size:10px;color:#9a9590;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}';
-  css += '.__ds-card-toggle{font-size:10px;color:#b0aba0;flex-shrink:0;transition:transform 0.2s;}';
-  css += '.__ds-card-toggle.__ds-expanded{transform:rotate(90deg);}';
-  css += '.__ds-card-body{display:none;padding:8px;border-top:1px solid rgba(0,0,0,0.06);font-size:11px;line-height:1.6;color:#5a564e;background:#faf9f7;max-height:300px;overflow-y:auto;}';
-  css += '.__ds-card-body.__ds-expanded{display:block;}';
-  css += '.__ds-card-content-text{white-space:pre-wrap;word-break:break-all;margin-bottom:6px;}';
-  css += '.__ds-card-details{border-top:1px dashed rgba(0,0,0,0.08);padding-top:6px;margin-top:4px;}';
-  css += '.__ds-detail-row{display:flex;gap:4px;padding:2px 0;font-size:10.5px;line-height:1.5;align-items:baseline;}';
-  css += '.__ds-detail-label{color:#7a756c;flex-shrink:0;min-width:60px;}';
-  css += '.__ds-detail-value{color:#3a3632;word-break:break-all;}';
-  css += '.__ds-card-time{font-size:10px;color:#b0aba0;flex-shrink:0;}';
-  css += '#__ds-panel-bottom{border-top:1px solid rgba(0,0,0,0.08);flex-shrink:0;}';
-  css += '#__ds-control-bar{display:flex;gap:6px;padding:8px 10px;}';
-  css += '.__ds-btn{flex:1;padding:6px 8px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;color:white;white-space:nowrap;}';
-  css += '.__ds-btn:hover{opacity:0.9;transform:translateY(-1px);}';
-  css += '.__ds-btn-inject{background:linear-gradient(135deg,#d4c4a8,#bca882);}';
-  css += '.__ds-btn-submit{background:linear-gradient(135deg,#a8b89c,#8a9a7a);}';
-  css += '.__ds-btn-restart{background:linear-gradient(135deg,#c4b498,#a89a78);}';
-  css += '.__ds-btn-reset{background:linear-gradient(135deg,#8a867e,#6a6660);font-size:11px;}';
-  css += '.__ds-btn-stop{background:linear-gradient(135deg,#c49a8c,#a88878);}';
-  css += '.__ds-btn-primary{background:linear-gradient(135deg,#a8b89c,#8a9a7a);color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600;}';
-  css += '.__ds-btn-secondary{background:rgba(0,0,0,0.05);color:#7a756c;border:1px solid rgba(0,0,0,0.12);padding:8px 16px;border-radius:6px;cursor:pointer;}';
-  css += '#__ds-status-bar{display:flex;gap:12px;padding:4px 10px;background:#f0ede8;font-size:11px;border-top:1px solid rgba(0,0,0,0.06);overflow-x:auto;}';
-  css += '.__ds-status-item{display:flex;align-items:center;gap:4px;white-space:nowrap;}';
-  css += '.__ds-status-label{color:#9a948a;}';
-  css += '.__ds-status-disconnected{display:inline-block;width:8px;height:8px;border-radius:50%;background:#c0bab0;flex-shrink:0;}';
-  css += '.__ds-status-connected{display:inline-block;width:8px;height:8px;border-radius:50%;background:#a8b89c;flex-shrink:0;box-shadow:0 0 4px rgba(168,184,156,0.5);}';
-  css += '.__ds-status-on{color:#5a9a4a;}.__ds-status-off{color:#c45a4a;}';
-  css += '.__ds-modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:9999999;display:flex;align-items:center;justify-content:center;}';
-  css += '.__ds-modal-overlay.__ds-hidden{display:none;}';
-  css += '.__ds-modal{background:#ffffff;border:1px solid rgba(0,0,0,0.10);border-radius:12px;width:440px;max-width:90vw;box-shadow:0 16px 64px rgba(0,0,0,0.15);}';
-  css += '.__ds-modal-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid rgba(0,0,0,0.08);font-weight:600;font-size:14px;color:#3a3632;}';
-  css += '.__ds-settings-tabs{display:flex;gap:0;margin-bottom:14px;border-bottom:1px solid rgba(0,0,0,0.10);}';
-  css += '.__ds-settings-tab{padding:6px 14px;cursor:pointer;font-size:12px;color:#8a857c;border-bottom:2px solid transparent;transition:all 0.2s;}';
-  css += '.__ds-settings-tab.__ds-tab-active{color:#5a8a4a;border-bottom-color:#5a8a4a;}';
-  css += '.__ds-launcher-card{flex:1;display:flex;align-items:center;gap:10px;background:#f0ede8;border-radius:8px;padding:10px 12px;border:1px solid rgba(0,0,0,0.08);}';
-  css += '.__ds-btn-launcher-action{padding:7px 10px;border:none;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;transition:all 0.2s;color:white;}';
-  css += '.__ds-btn-l-start{background:linear-gradient(135deg,#a8b89c,#8a9a7a);}';
-  css += '.__ds-btn-l-stop{background:linear-gradient(135deg,#c49a8c,#a88878);}';
-  css += '.__ds-btn-l-restart{background:linear-gradient(135deg,#c4b498,#a89a78);}';
-  css += '.__ds-btn-l-refresh{background:linear-gradient(135deg,#7a7680,#5a5660);}';
-  css += '</style>';
-  return css;
-}
+// ============================================================
+// Event bindings
+// ============================================================
+function bindPanelEvents() {
+  // Header
+  var minBtn = document.getElementById('__ds-btn-minimize');
+  if (minBtn) minBtn.onclick = function() { togglePanel(false); };
+  var closeBtn = document.getElementById('__ds-btn-close');
+  if (closeBtn) closeBtn.onclick = function() { togglePanel(false); };
+  var header = document.getElementById('__ds-header');
+  if (header) header.addEventListener('mousedown', startPanelDrag);
 
-function bindPanelEvents(panel) {
-  document.getElementById('__ds-panel-toggle').onclick = function() {
-    panel.classList.toggle('__ds-collapsed');
-    document.getElementById('__ds-panel-toggle').textContent = panel.classList.contains('__ds-collapsed') ? '+' : '−';
+  // Search
+  var searchInput = document.getElementById('__ds-tool-search');
+  if (searchInput) {
+    var _searchTimer = null;
+    searchInput.addEventListener('input', function() {
+      clearTimeout(_searchTimer);
+      _searchTimer = setTimeout(function() { renderToolCardsFiltered(searchInput.value.trim()); }, 200);
+    });
+  }
+
+  // Log tabs
+  var logTabs = document.querySelectorAll('.ds-log-tab');
+  for (var i = 0; i < logTabs.length; i++) {
+    logTabs[i].addEventListener('click', function() {
+      logTabs.forEach(function(t) { t.classList.remove('active'); });
+      this.classList.add('active');
+      logLevelFilter = this.getAttribute('data-level') || 'all';
+      renderLogs();
+    });
+  }
+
+  // Log toolbar
+  var exportBtn = document.getElementById('__ds-btn-export');
+  if (exportBtn) exportBtn.onclick = function() { exportLogs(); };
+  var clearBtn = document.getElementById('__ds-btn-clear');
+  if (clearBtn) clearBtn.onclick = function() {
+    executionHistory = []; renderLogs(); logPanel('info', 'Logs cleared');
   };
-  document.getElementById('__ds-btn-inject').onclick = doInjectPrompt;
-  document.getElementById('__ds-btn-submit').onclick = handleSubmitOrStop;
-  document.getElementById('__ds-btn-restart').onclick = doRestartServer;
-  document.getElementById('__ds-btn-reset').onclick = resetCurrentSession;
-  document.getElementById('__ds-btn-toggle-files').onclick = toggleFileBrowser;
-  document.getElementById('__ds-btn-refresh-files').onclick = function() { loadFileBrowser(); };
-  document.getElementById('__ds-btn-goto-workspace').onclick = function() { loadFileBrowser(); };
-  document.getElementById('__ds-btn-close-preview').onclick = closeFilePreview;
-  document.getElementById('__ds-btn-clear-history').onclick = function() { executionHistory = []; updateHistoryUI(); };
-  document.getElementById('__ds-btn-view-logs').onclick = function() {
-    var preview = document.getElementById('__ds-log-preview');
-    if (preview) { preview.style.display = preview.style.display === 'none' ? 'block' : 'none'; if (preview.style.display === 'block') __ds_viewRawLogs(); }
+
+  // Auto scroll toggle
+  var asBtn = document.getElementById('__ds-btn-autoscroll');
+  if (asBtn) asBtn.onclick = function() {
+    autoScroll = !autoScroll;
+    this.classList.toggle('active', autoScroll);
+    this.innerHTML = autoScroll ? '&#8964; auto-scroll' : '&#9644; paused';
+    if (autoScroll) scrollToLogBottom();
   };
-  document.getElementById('__ds-btn-export-logs').onclick = function() { __ds_exportLogs(); };
-  document.getElementById('__ds-btn-close-log-preview').onclick = function() { document.getElementById('__ds-log-preview').style.display = 'none'; };
-  document.getElementById('__ds-btn-settings').onclick = openSettings;
-  document.getElementById('__ds-btn-close-settings').onclick = closeSettings;
-  document.getElementById('__ds-btn-cancel-settings').onclick = closeSettings;
-  document.getElementById('__ds-btn-save-settings').onclick = saveSettings;
-  document.getElementById('__ds-settings-overlay').onclick = function(e) { if (e.target === this) closeSettings(); };
-  var tabWs = document.getElementById('__ds-tab-workspace');
-  var tabLau = document.getElementById('__ds-tab-launcher');
-  if (tabWs) tabWs.onclick = function() { switchSettingsTab('workspace'); };
-  if (tabLau) tabLau.onclick = function() { switchSettingsTab('launcher'); };
-  var btnLStart = document.getElementById('__ds-btn-launcher-start');
-  var btnLStop = document.getElementById('__ds-btn-launcher-stop');
-  var btnLRestart = document.getElementById('__ds-btn-launcher-restart');
-  var btnLRefresh = document.getElementById('__ds-btn-launcher-refresh');
-  if (btnLStart) btnLStart.onclick = doLauncherStart;
-  if (btnLStop) btnLStop.onclick = doLauncherStop;
-  if (btnLRestart) btnLRestart.onclick = doLauncherRestartAll;
-  if (btnLRefresh) btnLRefresh.onclick = function() { refreshLauncherStatus(true); };
+
+  // Quick actions edit
+  var editQABtn = document.getElementById('__ds-btn-edit-qa');
+  if (editQABtn) editQABtn.onclick = function() { showQAEditor(window.__ds_quickActions || []); };
+
+  // Add skill
+  var addSkillBtn = document.getElementById('__ds-btn-add-skill');
+  if (addSkillBtn) addSkillBtn.onclick = function() {
+    logPanel('info', 'Skill creation: use AI skill-creator or add manually via config');
+  };
+
+  // QA Modal
+  var qaSave = document.getElementById('__ds-qa-save');
+  if (qaSave) qaSave.onclick = saveQuickActions;
+  var qaCancel = document.getElementById('__ds-qa-cancel');
+  if (qaCancel) qaCancel.onclick = hideAllModals;
+  var qaClose = document.getElementById('__ds-qa-close');
+  if (qaClose) qaClose.onclick = hideAllModals;
 }
 
-function makeDraggable(el) {
-  var header = document.getElementById('__ds-panel-header');
-  var isDragging = false, startX, startY, startLeft, startTop;
-  header.onmousedown = function(e) {
-    if (e.target.closest('.__ds-header-right')) return;
-    isDragging = true;
-    var rect = el.getBoundingClientRect();
-    startX = e.clientX; startY = e.clientY;
-    startLeft = rect.left; startTop = rect.top;
-    el.style.transition = 'none';
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-    e.preventDefault();
-  };
-  function onMouseMove(e) { if (!isDragging) return; el.style.left = (startLeft + e.clientX - startX) + 'px'; el.style.top = (startTop + e.clientY - startY) + 'px'; el.style.right = 'auto'; }
-  function onMouseUp() { isDragging = false; el.style.transition = ''; document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp); }
+// ============================================================
+// Pet ball drag
+// ============================================================
+function startPetDrag(e) {
+  if (e.button !== 0) return;
+  petDragging = true;
+  petDragStartX = e.clientX; petDragStartY = e.clientY;
+  var pet = document.getElementById('__ds-pet-ball');
+  var rect = pet.getBoundingClientRect();
+  petOffsetX = e.clientX - rect.left; petOffsetY = e.clientY - rect.top;
+  pet.style.transition = 'none';
+  document.addEventListener('mousemove', petDragMove);
+  document.addEventListener('mouseup', petDragEnd);
+  e.preventDefault();
 }
+function petDragMove(e) {
+  if (!petDragging) return;
+  var pet = document.getElementById('__ds-pet-ball');
+  var vw = window.innerWidth, vh = window.innerHeight;
+  pet.style.left = Math.min(Math.max(e.clientX - petOffsetX, 0), vw - 48) + 'px';
+  pet.style.right = 'auto'; pet.style.bottom = 'auto';
+  pet.style.top = Math.min(Math.max(e.clientY - petOffsetY, 0), vh - 48) + 'px';
+}
+function petDragEnd(e) {
+  if (!petDragging) return;
+  petDragging = false;
+  var dx = Math.abs(e.clientX - petDragStartX), dy = Math.abs(e.clientY - petDragStartY);
+  var pet = document.getElementById('__ds-pet-ball');
+  pet.style.transition = 'transform .15s';
+  if (dx < 5 && dy < 5) togglePanel();
+  document.removeEventListener('mousemove', petDragMove);
+  document.removeEventListener('mouseup', petDragEnd);
+}
+
+// ============================================================
+// Panel drag
+// ============================================================
+var panelDragging = false, panelOffX = 0, panelOffY = 0;
+function startPanelDrag(e) {
+  if (e.button !== 0 || e.target.closest('button')) return;
+  panelDragging = true;
+  var p = document.getElementById('__ds-agent-panel'), r = p.getBoundingClientRect();
+  panelOffX = e.clientX - r.left; panelOffY = e.clientY - r.top;
+  p.style.transition = 'none';
+  document.addEventListener('mousemove', panelDragMove);
+  document.addEventListener('mouseup', panelDragEnd);
+  e.preventDefault();
+}
+function panelDragMove(e) {
+  if (!panelDragging) return;
+  var p = document.getElementById('__ds-agent-panel'), vw = window.innerWidth, vh = window.innerHeight;
+  p.style.right = 'auto'; p.style.bottom = 'auto';
+  p.style.left = Math.min(Math.max(e.clientX - panelOffX, 0), vw - 680) + 'px';
+  p.style.top = Math.min(Math.max(e.clientY - panelOffY, 0), vh - 480) + 'px';
+}
+function panelDragEnd() {
+  if (!panelDragging) return;
+  panelDragging = false;
+  document.getElementById('__ds-agent-panel').style.transition = '';
+  document.removeEventListener('mousemove', panelDragMove);
+  document.removeEventListener('mouseup', panelDragEnd);
+}
+
+// ============================================================
+// Toggle panel visibility
+// ============================================================
+function togglePanel(show) {
+  var panel = document.getElementById('__ds-agent-panel');
+  var pet = document.getElementById('__ds-pet-ball');
+  if (!panel || !pet) { console.warn('[DS] togglePanel: elements not found', !!panel, !!pet); return; }
+
+  var isOpen = panel.classList.contains('visible');
+
+  if (show === true && !isOpen) {
+    openPanel(panel, pet);
+  } else if (show === false && isOpen) {
+    closePanel(panel, pet);
+  } else if (show === undefined) {
+    if (isOpen) { closePanel(panel, pet); }
+    else { openPanel(panel, pet); }
+  }
+}
+
+function openPanel(panel, pet) {
+  panel.classList.add('visible');
+  panel.style.display = 'flex';
+  pet.classList.add('visible');
+  loadPanelData();
+}
+
+function closePanel(panel, pet) {
+  panel.classList.remove('visible');
+  panel.style.display = 'none';
+  pet.classList.remove('visible');
+  pet.style.left = '';
+  pet.style.right = '';
+  pet.style.top = '';
+  pet.style.bottom = '';
+}
+
+async function loadPanelData() {
+  var serverOnline = false;
+  try {
+    if (window.checkServerHealth) {
+      var r = await window.checkServerHealth();
+      serverOnline = r && r.healthy;
+      updateServerStatusUI(serverOnline);
+    }
+  } catch(e) {}
+  if (serverOnline) {
+    try { if (window.loadTools) window.loadTools(); } catch(e) {}
+    try { if (window.loadSkills) window.loadSkills(); } catch(e) {}
+    try { if (window.loadQuickActions) window.loadQuickActions(); } catch(e) {}
+  }
+  renderLogs();
+}
+
+// ============================================================
+// Tool cards rendering (with mode cycling)
+// ============================================================
+var MODE_CYCLE = ['auto', 'manual', 'off'];
+var MODE_LABELS = { auto: 'AUTO', manual: 'MANUAL', off: 'OFF' };
+var MODE_ICON = { auto: '\u26A1', manual: '\u25CF', off: '\u25CB' };
+var MODE_CLASS = { auto: 'ds-mode-auto', manual: 'ds-mode-manual', off: 'ds-mode-off' };
+
+function renderToolsList(tools) {
+  if (!tools || !Array.isArray(tools)) return;
+  agentTools = tools;
+  renderToolCardsFiltered('');
+}
+
+function renderToolCardsFiltered(query) {
+  var container = document.getElementById('__ds-tools-container');
+  if (!container) return;
+  var q = (query || '').toLowerCase();
+  var filtered = agentTools.filter(function(t) {
+    return !q || (t.name || '').toLowerCase().indexOf(q) >= 0 || (t.description || '').toLowerCase().indexOf(q) >= 0;
+  });
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="padding:16px;text-align:center;color:var(--cr-fallback-color-on-surface-subtle);font-size:var(--cr-font-size-sm);">' +
+      (q ? 'No tools match "' + escapeAttr(q) + '"' : 'No tools loaded') + '</div>';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < filtered.length; i++) {
+    var tool = filtered[i];
+    var mode = tool.mode || 'off';
+    html += '<div class="ds-tool-card" data-tool="' + escapeAttr(tool.name) + '">';
+    html += '<span class="ds-tool-icon">' + (MODE_ICON[mode] || '\u25CB') + '</span>';
+    html += '<div class="ds-tool-info">';
+    html += '<div class="ds-tool-name">' + escapeAttr(tool.name) + '</div>';
+    html += '<div class="ds-tool-desc">' + escapeAttr(tool.description || '') + '</div>';
+    html += '</div>';
+    html += '<span class="ds-tool-mode ' + (MODE_CLASS[mode] || 'ds-mode-off') + '" data-tool="' + escapeAttr(tool.name) + '">' + (MODE_LABELS[mode] || 'OFF') + '</span>';
+    html += '<span class="ds-tool-add" data-tool="' + escapeAttr(tool.name) + '">+</span>';
+    html += '</div>';
+  }
+  container.innerHTML = html;
+
+  // Mode cycle click
+  var modeEls = container.querySelectorAll('.ds-tool-mode');
+  for (var j = 0; j < modeEls.length; j++) {
+    modeEls[j].onclick = (function(el) {
+      return function() {
+        var tName = el.getAttribute('data-tool');
+        var currentMode = el.textContent.trim().toUpperCase();
+        var idx = MODE_CYCLE.indexOf(currentMode.toLowerCase());
+        var nextIdx = (idx + 1) % MODE_CYCLE.length;
+        var nextMode = MODE_CYCLE[nextIdx];
+        el.textContent = MODE_LABELS[nextMode];
+        el.className = 'ds-tool-mode ' + MODE_CLASS[nextMode];
+        el.parentNode.querySelector('.ds-tool-icon').textContent = MODE_ICON[nextMode];
+        if (window.__ds_onToolModeChange) window.__ds_onToolModeChange(tName, nextMode);
+      };
+    })(modeEls[j]);
+  }
+}
+
+// ============================================================
+// Skills rendering
+// ============================================================
+function renderSkillsList(skills, customSkills) {
+  if (!skills) skills = [];
+  if (!Array.isArray(skills)) return;
+  agentSkills = skills;
+  agentCustomSkills = customSkills || [];
+  var container = document.getElementById('__ds-skills-container');
+  if (!container) return;
+  if (skills.length === 0) { container.innerHTML = ''; return; }
+  var html = '';
+  for (var i = 0; i < skills.length; i++) {
+    var sk = skills[i];
+    var enabled = sk.enabled !== undefined ? sk.enabled : false;
+    html += '<div class="ds-skill-row">';
+    html += '<span class="ds-skill-name">' + escapeAttr(sk.name) + '</span>';
+    html += '<div class="ds-skill-toggle" data-skill="' + escapeAttr(sk.dirName || sk.name) + '" data-enabled="' + enabled + '">';
+    html += '<div class="ds-toggle-pill ' + (enabled ? 'on' : 'off') + '"><div class="ds-toggle-knob"></div></div>';
+    html += '</div></div>';
+  }
+  container.innerHTML = html;
+
+  var toggles = container.querySelectorAll('.ds-skill-toggle');
+  for (var j = 0; j < toggles.length; j++) {
+    toggles[j].onclick = (function(el) {
+      return function() {
+        var sName = el.getAttribute('data-skill');
+        var curEnabled = el.getAttribute('data-enabled') === 'true';
+        var newEnabled = !curEnabled;
+        el.setAttribute('data-enabled', String(newEnabled));
+        var pill = el.querySelector('.ds-toggle-pill');
+        pill.className = 'ds-toggle-pill ' + (newEnabled ? 'on' : 'off');
+        if (window.__ds_toggleSkill) window.__ds_toggleSkill(sName, newEnabled);
+      };
+    })(toggles[j]);
+  }
+}
+
+// ============================================================
+// Quick actions (bottom bar)
+// ============================================================
+function updateQuickActionButtons(actions) {
+  if (!actions) actions = [];
+  window.__ds_quickActions = actions;
+  quickActions = actions;
+  var container = document.getElementById('__ds-quick-btns');
+  if (!container) return;
+  if (actions.length === 0) {
+    container.innerHTML = '<span style="color:var(--cr-fallback-color-on-surface-subtle);font-size:var(--cr-font-size-xs);">No quick actions</span>';
+    return;
+  }
+  var icons = ['\u229E', '\u2600', '\u274C'];
+  var html = '';
+  for (var i = 0; i < actions.length; i++) {
+    html += '<button class="ds-qbtn" data-qa-index="' + i + '">';
+    html += '<span class="ds-qbtn-icon">' + (icons[i % icons.length] || '\u229E') + '</span>';
+    html += escapeAttr(actions[i].label || 'Action ' + (i+1));
+    html += '</button>';
+  }
+  container.innerHTML = html;
+  var btns = container.querySelectorAll('.ds-qbtn');
+  for (var j = 0; j < btns.length; j++) {
+    btns[j].onclick = (function(idx) {
+      return function() {
+        if (window.triggerQuickAction) window.triggerQuickAction(idx);
+      };
+    })(parseInt(btns[j].getAttribute('data-qa-index')));
+  }
+  updateStatusBar();
+}
+
+function updateStatusBar() {
+  var statusEl = document.getElementById('__ds-agent-status-text');
+  if (!statusEl) return;
+  var autoCount = 0;
+  for (var i = 0; i < agentTools.length; i++) {
+    if ((agentTools[i].mode || 'off') === 'auto') autoCount++;
+  }
+  statusEl.innerHTML = '<span class="ds-online">Ready</span> &middot; ' + agentTools.length + ' tools &middot; ' + autoCount + ' auto';
+}
+
+// ============================================================
+// Agent state
+// ============================================================
+function updateAgentPanelUI(initialized) {
+  updateStatusBar();
+  updateQuickActionButtons(window.__ds_quickActions || []);
+}
+
+// ============================================================
+// Logs
+// ============================================================
+function renderLogs() {
+  var area = document.getElementById('__ds-log-area');
+  if (!area) return;
+  if (!executionHistory || executionHistory.length === 0) {
+    area.innerHTML = '<div style="padding:16px;text-align:center;color:var(--cr-fallback-color-on-surface-subtle);">No logs yet</div>';
+    return;
+  }
+  var recent = executionHistory.slice(-200);
+  var filtered = recent;
+  if (logLevelFilter && logLevelFilter !== 'all') {
+    filtered = recent.filter(function(l) { return l.level === logLevelFilter; });
+  }
+  if (filtered.length === 0) {
+    area.innerHTML = '<div style="padding:16px;text-align:center;color:var(--cr-fallback-color-on-surface-subtle);">No ' + logLevelFilter + ' logs</div>';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < filtered.length; i++) {
+    var log = filtered[i];
+    var cls = 'ds-badge-' + (log.level === 'error' ? 'error' : log.level === 'warn' ? 'warn' : log.level === 'success' ? 'success' : 'info');
+    html += '<div class="ds-log-entry">';
+    html += '<span class="ds-log-time">' + escapeAttr(log.time || '--:--') + '</span>';
+    html += '<span class="ds-log-badge ' + cls + '">' + (log.level || 'info') + '</span>';
+    html += '<span class="ds-log-msg">' + escapeAttr(log.message || '') + '</span>';
+    html += '</div>';
+  }
+  area.innerHTML = html;
+  if (autoScroll) scrollToLogBottom();
+}
+
+function scrollToLogBottom() {
+  var area = document.getElementById('__ds-log-area');
+  if (area) area.scrollTop = area.scrollHeight;
+}
+
+function exportLogs() {
+  if (!executionHistory || executionHistory.length === 0) { logPanel('warn', 'No logs to export'); return; }
+  var text = '=== DS-Agent Logs ===\n';
+  for (var i = 0; i < executionHistory.length; i++) {
+    text += '[' + (executionHistory[i].time || '--:--') + '] [' + (executionHistory[i].level || 'info').toUpperCase() + '] ' + (executionHistory[i].message || '') + '\n';
+  }
+  var blob = new Blob([text], { type: 'text/plain' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = 'agent-logs-' + Date.now() + '.txt'; a.click();
+  URL.revokeObjectURL(url);
+  logPanel('info', 'Logs exported');
+}
+
+function logPanel(level, message) {
+  var time = new Date().toTimeString().split(' ')[0];
+  executionHistory.push({ time: time, level: level, message: message });
+  if (executionHistory.length > 500) executionHistory = executionHistory.slice(-500);
+  renderLogs();
+  try { if (typeof saveLocalLog === 'function') saveLocalLog(level, message, time, new Date().toISOString()); } catch(e) {}
+  try { if (typeof sendLogToFile === 'function') sendLogToFile(level, message, new Date().toISOString()); } catch(e) {}
+}
+
+// ============================================================
+// Server status
+// ============================================================
+function updateServerStatusUI(online) {
+  var dot = document.getElementById('__ds-dot');
+  var txt = document.getElementById('__ds-status-text');
+  if (dot) dot.className = online ? 'online' : 'offline';
+  if (txt) txt.textContent = online ? 'Connected' : 'Disconnected';
+
+  var dotColor = online ? '#5b8a4a' : '#c0bab0';
+  var dotShadow = online ? '0 0 6px rgba(91,138,74,0.4)' : 'none';
+  var petDot = document.getElementById('__ds-pet-dot');
+  var headerDot = document.getElementById('__ds-h-status-dot');
+  var serverStatusText = document.getElementById('__ds-server-status-text');
+  var panelStatusDot = document.getElementById('__ds-panel-status-dot');
+  var serverText = document.getElementById('__ds-server-text');
+  if (petDot) { petDot.style.background = dotColor; petDot.style.boxShadow = dotShadow; }
+  if (headerDot) { headerDot.style.background = dotColor; headerDot.style.boxShadow = dotShadow; }
+  if (serverStatusText) serverStatusText.textContent = online ? '✅ 已连接' : '❌ 未连接';
+  if (panelStatusDot) { panelStatusDot.className = online ? '__ds-status-connected' : '__ds-status-disconnected'; }
+  if (serverText) { serverText.textContent = online ? '已连接' : '未连接'; serverText.className = online ? '__ds-status-on' : '__ds-status-off'; }
+}
+
+function setStageText(text) {
+  var el = document.getElementById('__ds-status-text');
+  if (el) el.textContent = text || 'Connected';
+}
+
+// ============================================================
+// QA Editor modal
+// ============================================================
+function showQAEditor(actions) {
+  if (!actions || !Array.isArray(actions)) actions = [];
+  var modal = document.getElementById('__ds-qa-modal');
+  var overlay = document.getElementById('__ds-modal-overlay');
+  if (!modal || !overlay) return;
+  hideAllModals();
+  overlay.classList.add('show');
+  modal.style.display = 'block';
+  var entries = document.getElementById('__ds-qa-entries');
+  if (!entries) return;
+  var html = '';
+  var count = Math.max(actions.length, 2);
+  for (var i = 0; i < count; i++) {
+    var act = actions[i] || { label: '', prompt: '' };
+    html += '<div class="ds-qa-entry">';
+    html += '<div class="ds-form-group"><label class="ds-form-label">Label</label>';
+    html += '<input class="ds-form-input ds-qa-label" value="' + escapeAttr(act.label || '') + '" placeholder="e.g. Summarize chat" /></div>';
+    html += '<div class="ds-form-group"><label class="ds-form-label">Prompt</label>';
+    html += '<textarea class="ds-form-input ds-qa-prompt" rows="2" placeholder="Prompt AI receives...">' + escapeAttr(act.prompt || '') + '</textarea></div>';
+    html += '</div>';
+  }
+  entries.innerHTML = html;
+}
+
+async function saveQuickActions() {
+  var entries = document.querySelectorAll('#__ds-qa-entries .ds-qa-entry');
+  var actions = [];
+  for (var i = 0; i < entries.length; i++) {
+    var label = entries[i].querySelector('.ds-qa-label');
+    var prompt = entries[i].querySelector('.ds-qa-prompt');
+    if (label && prompt && label.value.trim() && prompt.value.trim()) {
+      actions.push({ label: label.value.trim(), prompt: prompt.value.trim() });
+    }
+  }
+  if (actions.length === 0) { alert('Need at least one valid action'); return; }
+  if (actions.length > 5) { alert('Max 5 actions'); return; }
+  window.__ds_quickActions = actions;
+  updateQuickActionButtons(actions);
+  if (window.__ds_saveQuickActions) await window.__ds_saveQuickActions(actions);
+  hideAllModals();
+  logPanel('info', 'Quick actions saved');
+}
+
+function hideAllModals() {
+  var overlay = document.getElementById('__ds-modal-overlay');
+  if (overlay) overlay.classList.remove('show');
+  var modal = document.getElementById('__ds-qa-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+// ============================================================
+// Utility
+// ============================================================
+function escapeAttr(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ============================================================
+// Exports to window (for actions.js / external callers)
+// ============================================================
+window.injectOperationPanel = injectPanelHTML;
+window.updateServerStatusUI = updateServerStatusUI;
+window.setStageText = setStageText;
+window.renderToolsList = renderToolsList;
+window.renderSkillsList = renderSkillsList;
+window.updateAgentPanelUI = updateAgentPanelUI;
+window.renderLogs = renderLogs;
+window.updateQuickActionButtons = updateQuickActionButtons;
+window.showConfigModal = function() {};
+window.showQuickActionsEditor = showQAEditor;
+window.showSettingsModal = function() {};
+window.hideAllModals = hideAllModals;
+window.logPanel = logPanel;
+
+// ============================================================
+// Auto init
+// ============================================================
+(function() {
+  if (document.getElementById('__ds-agent-panel')) return;
+  injectPanelCSS();
+  injectPanelHTML();
+  var pet = document.getElementById('__ds-pet-ball');
+  var panel = document.getElementById('__ds-agent-panel');
+  console.log('[DS-Agent v2.5] Panel injected. Pet:', !!pet, 'Panel:', !!panel, 'Panel display:', panel ? panel.style.display : 'N/A');
+
+  var __ds_healthTimer = null;
+
+  function startHealthPolling() {
+    if (__ds_healthTimer) clearInterval(__ds_healthTimer);
+    function check() {
+      try {
+        if (window.checkServerStatus) {
+          window.checkServerStatus();
+        } else if (window.checkServerHealth) {
+          window.checkServerHealth().then(function(r) { updateServerStatusUI(r && r.healthy); });
+        }
+      } catch(e) {}
+    }
+    check();
+    __ds_healthTimer = setInterval(check, 30000);
+  }
+
+  setTimeout(function() {
+    startHealthPolling();
+  }, 1000);
+
+  console.log('[Agent v2.5] Panel injected with Chromium UI tokens');
+})();

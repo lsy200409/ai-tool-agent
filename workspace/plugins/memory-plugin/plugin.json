@@ -1,0 +1,10 @@
+{
+  "id": "memory-plugin",
+  "name": "Memory Plugin",
+  "version": "1.0.0",
+  "description": "混合搜索引擎记忆插件 — 基于 personal-ai-memory 架构：关键词匹配 + 时间衰减 + RRF融合，为DeepSeek Agent提供持久化对话记忆能力",
+  "entry": "index.js",
+  "requiredEngineVersion": "^2.3.0",
+  "tools": ["memory_save", "memory_search", "memory_recall", "memory_forget", "memory_stats"],
+  "kind": "memory"
+}

@@ -13,6 +13,21 @@ const execPromise = util.promisify(execCb);
 const PORT = 3002;
 const WORKSPACE_DIR = path.join(__dirname, '..', 'workspace');
 
+function isPathAllowed(filePath) {
+  const resolved = path.resolve(filePath);
+  if (resolved.startsWith(WORKSPACE_DIR + path.sep) || resolved === WORKSPACE_DIR) return true;
+  return false;
+}
+
+function normalizePath(filePath) {
+  if (path.isAbsolute(filePath)) {
+    const resolved = path.resolve(filePath);
+    return resolved;
+  }
+  var normalized = filePath.replace(/^[/\\]*workspace[/\\]/i, '');
+  return path.join(WORKSPACE_DIR, normalized);
+}
+
 let httpServer = null;
 let isRunning = false;
 var startedSent = false;
@@ -100,7 +115,7 @@ function sendMessage(message) {
 const TOOL_HANDLERS = {
   async read_file({ path: filePath }) {
     if (!filePath) throw new Error('缺少 path 参数');
-    let resolvedPath = path.isAbsolute(filePath) ? path.resolve(filePath) : path.join(WORKSPACE_DIR, filePath);
+    let resolvedPath = normalizePath(filePath);
     const content = await fs.readFile(resolvedPath, 'utf-8');
     return { content, path: resolvedPath };
   },
@@ -108,7 +123,7 @@ const TOOL_HANDLERS = {
   async write_file({ path: filePath, content }) {
     if (!filePath) throw new Error('缺少 path 参数');
     if (content === undefined) throw new Error('缺少 content 参数');
-    let resolvedPath = path.isAbsolute(filePath) ? path.resolve(filePath) : path.join(WORKSPACE_DIR, filePath);
+    let resolvedPath = normalizePath(filePath);
     await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
     await fs.writeFile(resolvedPath, content, 'utf-8');
     return { path: resolvedPath };
@@ -116,7 +131,7 @@ const TOOL_HANDLERS = {
 
   async list_dir({ path: dirPath }) {
     if (!dirPath) throw new Error('缺少 path 参数');
-    const resolvedPath = path.isAbsolute(dirPath) ? path.resolve(dirPath) : path.join(WORKSPACE_DIR, dirPath);
+    const resolvedPath = normalizePath(dirPath);
     const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
     const files = await Promise.all(entries.map(async entry => {
       let size = 0;
@@ -129,14 +144,14 @@ const TOOL_HANDLERS = {
 
   async exec_command({ command }) {
     if (!command) throw new Error('缺少 command 参数');
-    const { stdout, stderr } = await execPromise(command, { timeout: 30000, maxBuffer: 1024 * 1024, cwd: process.cwd() });
+    const { stdout, stderr } = await execPromise(command, { timeout: 30000, maxBuffer: 1024 * 1024, cwd: WORKSPACE_DIR });
     return { stdout: stdout.substring(0, 50000), stderr: stderr.substring(0, 10000) };
   },
 
   async append_file({ path: filePath, content }) {
     if (!filePath) throw new Error('缺少 path 参数');
     if (content === undefined) throw new Error('缺少 content 参数');
-    let resolvedPath = path.isAbsolute(filePath) ? path.resolve(filePath) : path.join(WORKSPACE_DIR, filePath);
+    let resolvedPath = normalizePath(filePath);
     await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
     await fs.appendFile(resolvedPath, content, 'utf-8');
     return { path: resolvedPath };
@@ -144,7 +159,7 @@ const TOOL_HANDLERS = {
 
   async search_files({ pattern, root }) {
     if (!pattern) throw new Error('缺少 pattern 参数');
-    const searchRoot = root ? path.resolve(root) : WORKSPACE_DIR;
+    const searchRoot = root ? normalizePath(root) : WORKSPACE_DIR;
     const results = [];
     async function search(dir, depth = 0) {
       if (depth > 3) return;
@@ -163,7 +178,7 @@ const TOOL_HANDLERS = {
 
   async get_file_info({ path: filePath }) {
     if (!filePath) throw new Error('缺少 path 参数');
-    const resolvedPath = path.isAbsolute(filePath) ? path.resolve(filePath) : path.join(WORKSPACE_DIR, filePath);
+    const resolvedPath = normalizePath(filePath);
     const stat = await fs.stat(resolvedPath);
     return { info: { path: resolvedPath, size: stat.size, mtime: stat.mtime.toISOString(), birthtime: stat.birthtime.toISOString(), isDirectory: stat.isDirectory(), isFile: stat.isFile() } };
   }
