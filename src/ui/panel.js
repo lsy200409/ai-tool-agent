@@ -1,5 +1,5 @@
 // ============================================================
-// DeepSeek Tool Agent v2.5 — Panel UI (Chromium-native styling)
+// DeepSeek Tool Agent v2.6 — Panel UI (Chromium-native styling)
 // Design tokens from chromium-ui-react (--cr-* variables)
 // Layout: dual-column (Tools&Skills | Live Logs) + bottom bar
 // Pure vanilla JS — no framework dependency
@@ -19,346 +19,9 @@ var petDragStartY = 0;
 var panelVisible = false;
 
 // ============================================================
-// CSS — Chromium design tokens (--cr-*) + component styles
+// CSS — 已提取到 panel-css.js，此处仅调用
 // ============================================================
-function injectPanelCSS() {
-  var s = document.getElementById('__ds-agent-css');
-  if (s) return;
-  s = document.createElement('style');
-  s.id = '__ds-agent-css';
-  s.textContent = [
-    '/* ===== Chromium Design Tokens ===== */',
-    ':root {',
-    '  --cr-fallback-color-primary:#1a73e8;',
-    '  --cr-fallback-color-on-primary:#fff;',
-    '  --cr-fallback-color-surface:#fff;',
-    '  --cr-fallback-color-surface-1:#f8f9fa;',
-    '  --cr-fallback-color-surface-variant:#eee;',
-    '  --cr-fallback-color-on-surface:#202124;',
-    '  --cr-fallback-color-on-surface-subtle:#5f6368;',
-    '  --cr-fallback-color-outline:#dadce0;',
-    '  --cr-fallback-color-error:#d93025;',
-    '  --cr-fallback-color-disabled-background:#f1f3f4;',
-    '  --cr-fallback-color-disabled-foreground:#bdc1c6;',
-    '  --google-blue-500:#4285f4;',
-    '  --google-green-600:#1e8e3e;',
-    '  --google-red-600:#d93025;',
-    '  --google-yellow-400:#fcc934;',
-    '  --google-grey-500:#9aa0a6;',
-    '  --cr-space-1:4px;--cr-space-2:8px;--cr-space-3:12px;',
-    '  --cr-space-4:16px;--cr-space-5:20px;--cr-space-6:24px;',
-    '  --cr-space-8:32px;--cr-space-10:40px;',
-    '  --cr-radius-xs:2px;--cr-radius-sm:4px;--cr-radius-md:8px;',
-    '  --cr-radius-lg:16px;--cr-radius-xl:24px;--cr-radius-full:100px;',
-    '  --cr-font-family:"Roboto","Segoe UI",system-ui,-apple-system,sans-serif;',
-    '  --cr-font-size-xs:11px;--cr-font-size-sm:12px;--cr-font-size-md:13px;',
-    '  --cr-font-size-base:14px;--cr-font-size-lg:16px;--cr-font-size-xl:20px;',
-    '  --cr-elevation-1:0 1px 2px rgba(60,64,67,.3),0 1px 3px 1px rgba(60,64,67,.15);',
-    '  --cr-elevation-2:0 1px 2px rgba(60,64,67,.3),0 2px 6px 2px rgba(60,64,67,.15);',
-    '  --cr-elevation-3:0 1px 3px rgba(60,64,67,.3),0 4px 8px 3px rgba(60,64,67,.15);',
-    '  --cr-elevation-5:0 1px 4px rgba(60,64,67,.3),0 8px 24px 6px rgba(60,64,67,.15);',
-    '  --cr-transition-duration:80ms;',
-    '}',
-    '@media (prefers-color-scheme: dark) {',
-    '  :root {',
-    '    --cr-fallback-color-surface:#202124;',
-    '    --cr-fallback-color-surface-1:#292a2d;',
-    '    --cr-fallback-color-surface-variant:#3c4043;',
-    '    --cr-fallback-color-on-surface:#e8eaed;',
-    '    --cr-fallback-color-on-surface-subtle:#9aa0a6;',
-    '    --cr-fallback-color-outline:#5f6368;',
-    '    --cr-fallback-color-disabled-background:#2d2e30;',
-    '    --cr-fallback-color-disabled-foreground:#80868b;',
-    '  }',
-    '  #__ds-agent-panel{background:#202124 !important;border-color:#5f6368}',
-    '  #__ds-header{background:#292a2d;border-color:#5f6368}',
-    '  #__ds-header-left,#__ds-header-left *{color:#e8eaed}',
-    '  #__ds-col-left{border-color:#5f6368;background:#202124}',
-    '  #__ds-col-right{background:#202124}',
-    '  .ds-col-header{background:#202124;border-color:#5f6368}',
-    '  .ds-col-title{color:#e8eaed}',
-    '  .ds-tool-list{background:#202124}',
-    '  .ds-tool-card{background:#202124}',
-    '  .ds-tool-card:hover{background:#292a2d}',
-    '  .ds-tool-name{color:#e8eaed}',
-    '  .ds-tool-desc{color:#9aa0a6}',
-    '  .ds-tool-mode.ds-mode-off{background:#3c4043;color:#9aa0a6}',
-    '  .ds-skills-list{background:#202124}',
-    '  .ds-skill-row{background:#202124}',
-    '  .ds-skill-row:hover{background:#292a2d}',
-    '  .ds-skill-name{color:#e8eaed}',
-    '  .ds-search-input{background:#292a2d;color:#e8eaed;border-color:#5f6368}',
-    '  #__ds-log-area{background:#202124;color:#e8eaed}',
-    '  .ds-log-entry:hover{background:#292a2d}',
-    '  .ds-log-msg{color:#e8eaed}',
-    '  .ds-log-tab{color:#9aa0a6}',
-    '  .ds-log-tab:hover{background:#292a2d;color:#e8eaed}',
-    '  .ds-log-toolbar{background:#202124}',
-    '  .ds-log-scroll-btn{background:#292a2d;border-color:#5f6368;color:#9aa0a6}',
-    '  #__ds-bottom-bar{background:#202124;border-color:#5f6368}',
-    '  .ds-qbtn{background:#292a2d;border-color:#5f6368;color:#e8eaed}',
-    '  .ds-log-tb-btn{background:#292a2d;border-color:#5f6368;color:#e8eaed}',
-    '  .ds-add-skill-btn{color:#9aa0a6}',
-    '  .ds-more-btn{color:#9aa0a6}',
-    '  #__ds-status{background:#292a2d;border-color:#5f6368}',
-    '  #__ds-status-text{color:#9aa0a6}',
-    '  #__ds-status-line{color:#9aa0a6}',
-    '  .ds-toggle-pill.off{background:#3c4043}',
-    '  .ds-form-input{background:#292a2d;color:#e8eaed;border-color:#5f6368}',
-    '  .ds-form-label{color:#9aa0a6}',
-    '  .ds-qa-entry{background:#292a2d;border-color:#5f6368}',
-    '  .ds-btn-secondary{background:#292a2d;color:#e8eaed}',
-    '  .ds-btn-secondary:hover{background:#3c4043}',
-    '  .ds-modal{background:#202124;border-color:#5f6368;color:#e8eaed}',
-    '  .ds-modal-title{color:#e8eaed}',
-    '  .ds-badge-info{background:#1a3a5c;color:#8ab4f8}',
-    '  .ds-badge-warn{background:#3c2e00;color:#fdd663}',
-    '  .ds-badge-error{background:#3c1a1a;color:#f28b82}',
-    '  .ds-badge-success{background:#1a3c1a;color:#81c995}',
-    '}',
-
-    '/* ===== Reset & Panel Container ===== */',
-    '#__ds-agent-panel *{box-sizing:border-box;margin:0;padding:0}',
-    '#__ds-agent-panel{',
-    '  position:fixed;bottom:120px;right:20px;z-index:2147483640;',
-    '  width:680px;height:440px;background:#fff;',
-    '  border:1px solid #dadce0;border-radius:12px;',
-    '  font-family:"Roboto","Segoe UI",system-ui,sans-serif;font-size:13px;',
-    '  color:#202124;display:none !important;overflow:hidden;',
-    '  box-shadow:0 4px 8px 3px rgba(60,64,67,.15),0 1px 3px 1px rgba(60,64,67,.3);',
-    '}',
-    '#__ds-agent-panel.visible{display:flex !important;flex-direction:column}',
-
-    '/* ===== Header ===== */',
-    '#__ds-header{',
-    '  display:flex;align-items:center;justify-content:space-between;',
-    '  padding:var(--cr-space-3) var(--cr-space-4);',
-    '  border-bottom:1px solid var(--cr-fallback-color-outline);',
-    '  background:var(--cr-fallback-color-surface-1);flex-shrink:0;',
-    '  cursor:grab;user-select:none;',
-    '}',
-    '#__ds-header:active{cursor:grabbing}',
-    '#__ds-header-left{display:flex;align-items:center;gap:var(--cr-space-2)}',
-    '#__ds-logo{font-size:var(--cr-font-size-base);font-weight:700;color:var(--google-blue-500)}',
-    '#__ds-title{font-weight:500;font-size:var(--cr-font-size-base)}',
-    '#__ds-version{font-size:var(--cr-font-size-xs);color:var(--cr-fallback-color-on-surface-subtle);',
-    '  padding:1px 6px;border-radius:var(--cr-radius-sm);background:var(--cr-fallback-color-surface-variant)}',
-    '#__ds-status{',
-    '  display:flex;align-items:center;gap:6px;padding:3px 10px;',
-    '  border:1px solid var(--cr-fallback-color-outline);border-radius:var(--cr-radius-full);',
-    '  font-size:var(--cr-font-size-xs);',
-    '}',
-    '#__ds-dot{width:8px;height:8px;border-radius:50%;background:var(--google-grey-500);transition:background .2s}',
-    '#__ds-dot.online{background:var(--google-green-600)}',
-    '#__ds-dot.offline{background:var(--google-red-600)}',
-    '#__ds-status-text{color:var(--cr-fallback-color-on-surface-subtle)}',
-    '#__ds-header-btns{display:flex;align-items:center;gap:2px}',
-    '.ds-hbtn{',
-    '  width:28px;height:28px;border:1px solid transparent;border-radius:var(--cr-radius-sm);',
-    '  background:none;cursor:pointer;font-size:16px;display:flex;align-items:center;',
-    '  justify-content:center;color:var(--cr-fallback-color-on-surface-subtle);',
-    '  transition:all var(--cr-transition-duration);',
-    '}',
-    '.ds-hbtn:hover{border-color:var(--cr-fallback-color-outline);background:var(--cr-fallback-color-surface-1)}',
-
-    '/* ===== Body: Dual Column Layout ===== */',
-    '#__ds-body{display:flex;flex:1;overflow:hidden;min-height:0}',
-    '#__ds-col-left{width:55%;display:flex;flex-direction:column;border-right:1px solid var(--cr-fallback-color-outline);overflow-y:auto}',
-    '#__ds-col-right{width:45%;display:flex;flex-direction:column;overflow:hidden}',
-
-    '/* Column Headers */',
-    '.ds-col-header{',
-    '  display:flex;align-items:center;justify-content:space-between;',
-    '  padding:var(--cr-space-3) var(--cr-space-4);',
-    '  border-bottom:1px solid var(--cr-fallback-color-outline);flex-shrink:0;',
-    '  background:var(--cr-fallback-color-surface);',
-    '}',
-    '.ds-col-title{font-size:var(--cr-font-size-lg);font-weight:500}',
-    '.ds-search-wrap{position:relative;width:160px}',
-    '.ds-search-input{',
-    '  width:100%;padding:5px 10px 5px 28px;border:1px solid var(--cr-fallback-color-outline);',
-    '  border-radius:var(--cr-radius-full);font-size:var(--cr-font-size-sm);',
-    '  background:var(--cr-fallback-color-surface);outline:none;',
-    '}',
-    '.ds-search-input:focus{border-color:var(--cr-fallback-color-primary)}',
-    '.ds-search-icon{position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--cr-fallback-color-on-surface-subtle)}',
-    '.ds-more-btn{background:none;border:none;font-size:18px;cursor:pointer;color:var(--cr-fallback-color-on-surface-subtle);padding:2px 6px;border-radius:var(--cr-radius-sm)}',
-    '.ds-more-btn:hover{background:var(--cr-fallback-color-surface-1)}',
-
-    /* Tool Cards */
-    '.ds-tool-list{padding:var(--cr-space-2) var(--cr-space-3);display:flex;flex-direction:column;gap:1px}',
-    '.ds-tool-card{',
-    '  display:flex;align-items:center;gap:var(--cr-space-3);padding:var(--cr-space-3);',
-    '  border-radius:var(--cr-radius-md);cursor:pointer;transition:background var(--cr-transition-duration);',
-    '}',
-    '.ds-tool-card:hover{background:var(--cr-fallback-color-surface-1)}',
-    '.ds-tool-icon{font-size:18px;width:24px;text-align:center;flex-shrink:0}',
-    '.ds-tool-info{flex:1;min-width:0}',
-    '.ds-tool-name{font-size:var(--cr-font-size-base);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-    '.ds-tool-desc{font-size:var(--cr-font-size-xs);color:var(--cr-fallback-color-on-surface-subtle);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}',
-    '.ds-tool-mode{',
-    '  font-size:var(--cr-font-size-xs);font-weight:600;padding:2px 10px;border-radius:var(--cr-radius-sm);',
-    '  cursor:pointer;user-select:none;flex-shrink:0;transition:all var(--cr-transition-duration);',
-    '  letter-spacing:.5px;',
-    '}',
-    '.ds-mode-auto{color:var(--google-blue-500);background:#e8f0fe}',
-    '.ds-mode-manual{color:var(--google-yellow-400);background:#fef7e0}',
-    '.ds-mode-off{color:var(--cr-fallback-color-on-surface-subtle);background:var(--cr-fallback-color-surface-variant)}',
-    '.ds-tool-add{font-size:18px;color:var(--cr-fallback-color-on-surface-subtle);cursor:pointer;width:20px;text-align:center}',
-
-    /* Skills */
-    '.ds-skills-list{padding:var(--cr-space-2) var(--cr-space-3)}',
-    '.ds-skill-row{',
-    '  display:flex;align-items:center;justify-content:space-between;',
-    '  padding:var(--cr-space-2) var(--cr-space-3);border-radius:var(--cr-radius-sm);',
-    '}',
-    '.ds-skill-row:hover{background:var(--cr-fallback-color-surface-1)}',
-    '.ds-skill-name{font-size:var(--cr-font-size-sm);font-weight:500}',
-    '.ds-skill-toggle{',
-    '  display:flex;align-items:center;gap:6px;cursor:pointer;',
-    '}',
-    '.ds-toggle-pill{',
-    '  width:32px;height:18px;border-radius:var(--cr-radius-full);position:relative;',
-    '  transition:background var(--cr-transition-duration);border:none;cursor:pointer;',
-    '}',
-    '.ds-toggle-pill.on{background:var(--google-blue-500)}',
-    '.ds-toggle-pill.off{background:var(--cr-fallback-color-surface-variant)}',
-    '.ds-toggle-knob{',
-    '  position:absolute;top:2px;width:14px;height:14px;border-radius:50%;',
-    '  background:#fff;transition:transform var(--cr-transition-duration);box-shadow:0 1px 2px rgba(0,0,0,.2)',
-    '}',
-    '.ds-toggle-pill.on .ds-toggle-knob{transform:translateX(14px)}',
-    '.ds-add-skill-btn{',
-    '  display:flex;align-items:center;gap:4px;margin:var(--cr-space-2) var(--cr-space-3);',
-    '  padding:var(--cr-space-2) var(--cr-space-3);border:1px dashed var(--cr-fallback-color-outline);',
-    '  border-radius:var(--cr-radius-sm);font-size:var(--cr-font-size-sm);color:var(--cr-fallback-color-on-surface-subtle);',
-    '  background:none;cursor:pointer;width:calc(100% - var(--cr-space-6));',
-    '}',
-    '.ds-add-skill-btn:hover{background:var(--cr-fallback-color-surface-1);border-color:var(--cr-fallback-color-primary)}',
-
-    /* Right column: Logs */
-    '#__ds-log-tabs{display:flex;gap:2px;padding:var(--cr-space-2) var(--cr-space-4) 0}',
-    '.ds-log-tab{',
-    '  padding:4px 12px;border:none;background:none;font-size:var(--cr-font-size-sm);',
-    '  color:var(--cr-fallback-color-on-surface-subtle);cursor:pointer;border-radius:var(--cr-radius-sm);',
-    '  font-weight:500;transition:all var(--cr-transition-duration);',
-    '}',
-    '.ds-log-tab:hover{background:var(--cr-fallback-color-surface-1)}',
-    '.ds-log-tab.active{',
-    '  background:var(--google-blue-500);color:#fff;',
-    '}',
-    '.ds-log-toolbar{',
-    '  display:flex;align-items:center;justify-content:space-between;',
-    '  padding:var(--cr-space-2) var(--cr-space-4);',
-    '}',
-    '.ds-log-tb-btn{',
-    '  padding:3px 12px;border:1px solid var(--cr-fallback-color-outline);',
-    '  border-radius:var(--cr-radius-sm);background:var(--cr-fallback-color-surface);',
-    '  font-size:var(--cr-font-size-xs);cursor:pointer;color:var(--cr-fallback-color-on-surface);',
-    '}',
-    '.ds-log-tb-btn:hover{background:var(--cr-fallback-color-surface-1);border-color:var(--cr-fallback-color-primary)}',
-    '#__ds-log-area{',
-    '  flex:1;overflow-y:auto;padding:var(--cr-space-2) var(--cr-space-4);',
-    '  font-size:var(--cr-font-size-xs);line-height:1.65;font-family:var(--cr-font-family);',
-    '}',
-    '.ds-log-entry{padding:2px 0;border-bottom:1px solid transparent;display:flex;gap:6px}',
-    '.ds-log-entry:hover{background:var(--cr-fallback-color-surface-1)}',
-    '.ds-log-time{color:var(--cr-fallback-color-on-surface-subtle);flex-shrink:0}',
-    '.ds-log-badge{',
-    '  padding:0 6px;border-radius:2px;font-size:10px;font-weight:700;flex-shrink:0;',
-    '  text-transform:uppercase;letter-spacing:.5px;',
-    '}',
-    '.ds-badge-info{background:#e8f0fe;color:var(--google-blue-500)}',
-    '.ds-badge-warn{background:#fef7e0;color:#b06000}',
-    '.ds-badge-error{background:#fce8e6;color:var(--google-red-600)}',
-    '.ds-badge-success{background:#e6f4ea;color:var(--google-green-600)}',
-    '.ds-log-msg{color:var(--cr-fallback-color-on-surface);word-break:break-word}',
-    '.ds-log-scroll-btn{',
-    '  display:flex;align-items:center;justify-content:center;gap:4px;',
-    '  padding:4px;border-top:1px solid var(--cr-fallback-color-outline);',
-    '  background:var(--cr-fallback-color-surface-1);font-size:var(--cr-font-size-xs);',
-    '  color:var(--cr-fallback-color-on-surface-subtle);cursor:pointer;',
-    '}',
-    '.ds-log-scroll-btn.active{color:var(--google-blue-500)}',
-
-    /* Bottom bar */
-    '#__ds-bottom-bar{',
-    '  display:flex;align-items:center;justify-content:space-between;',
-    '  padding:var(--cr-space-2) var(--cr-space-4);',
-    '  border-top:1px solid var(--cr-fallback-color-outline);',
-    '  background:var(--cr-fallback-color-surface);flex-shrink:0;',
-    '}',
-    '#__ds-quick-btns{display:flex;gap:6px;flex:1}',
-    '.ds-qbtn{',
-    '  display:flex;align-items:center;gap:4px;padding:5px 12px;',
-    '  border:1px solid var(--cr-fallback-color-outline);border-radius:var(--cr-radius-full);',
-    '  background:var(--cr-fallback-color-surface);font-size:var(--cr-font-size-xs);',
-    '  cursor:pointer;color:var(--cr-fallback-color-on-surface);white-space:nowrap;',
-    '  transition:all var(--cr-transition-duration);',
-    '}',
-    '.ds-qbtn:hover{border-color:var(--cr-fallback-color-primary);background:#e8f0fe}',
-    '.ds-qbtn-icon{font-size:13px}',
-    '#__ds-status-line{',
-    '  display:flex;align-items:center;gap:6px;font-size:var(--cr-font-size-xs);',
-    '  color:var(--cr-fallback-color-on-surface-subtle);flex-shrink:0;',
-    '}',
-    '#__ds-status-line .ds-online{color:var(--google-green-600);font-weight:600}',
-    '.ds-edit-btn{',
-    '  width:26px;height:26px;border:1px solid var(--cr-fallback-color-outline);',
-    '  border-radius:50%;background:none;cursor:pointer;font-size:12px;',
-    '  display:flex;align-items:center;justify-content:center;',
-    '  color:var(--cr-fallback-color-on-surface-subtle);margin-left:6px;',
-    '}',
-    '.ds-edit-btn:hover{background:var(--cr-fallback-color-surface-1)}',
-
-    /* Modal */
-
-    /* Pet ball */
-    '#__ds-pet-ball{',
-    '  position:fixed;bottom:20px;right:20px;width:40px;height:40px;',
-    '  background:#1a73e8;color:#fff;border-radius:50%;',
-    '  display:flex;align-items:center;justify-content:center;',
-    '  font-size:11px;font-weight:700;cursor:grab;z-index:2147483639;',
-    '  box-shadow:0 2px 6px 2px rgba(60,64,67,.15),0 1px 3px 1px rgba(60,64,67,.3);',
-    '  user-select:none;transition:transform .15s;',
-    '}',
-    '#__ds-pet-ball:active{cursor:grabbing}',
-    '#__ds-pet-ball.visible{transform:scale(0);pointer-events:none}',
-
-    /* Modal */
-    '.ds-modal-overlay{',
-    '  position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:2147483647;',
-    '  display:none;align-items:center;justify-content:center;',
-    '}',
-    '.ds-modal-overlay.show{display:flex;padding:20px}',
-    '.ds-modal{',
-    '  background:var(--cr-fallback-color-surface);border:1px solid var(--cr-fallback-color-outline);',
-    '  border-radius:var(--cr-radius-lg);padding:var(--cr-space-5);width:420px;max-height:70vh;',
-    '  overflow-y:auto;position:relative;box-shadow:var(--cr-elevation-5);z-index:1;',
-    '}',
-    '.ds-modal-title{font-size:var(--cr-font-size-lg);font-weight:500;margin-bottom:var(--cr-space-4)}',
-    '.ds-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:var(--cr-space-4)}',
-    '.ds-form-group{margin-bottom:var(--cr-space-3)}',
-    '.ds-form-label{display:block;font-size:var(--cr-font-size-xs);font-weight:500;margin-bottom:4px;color:var(--cr-fallback-color-on-surface-subtle)}',
-    '.ds-form-input{',
-    '  width:100%;padding:7px 10px;border:1px solid var(--cr-fallback-color-outline);',
-    '  border-radius:var(--cr-radius-sm);font-size:var(--cr-font-size-sm);',
-    '  background:var(--cr-fallback-color-surface);outline:none;font-family:inherit;',
-    '}',
-    '.ds-form-input:focus{border-color:var(--cr-fallback-color-primary)}',
-    '.ds-btn{',
-    '  padding:6px 16px;border:1px solid var(--cr-fallback-color-outline);',
-    '  border-radius:var(--cr-radius-sm);font-size:var(--cr-font-size-sm);cursor:pointer;',
-    '  font-family:inherit;transition:all var(--cr-transition-duration);',
-    '}',
-    '.ds-btn-primary{background:var(--google-blue-500);color:#fff;border-color:var(--google-blue-500)}',
-    '.ds-btn-secondary{background:var(--cr-fallback-color-surface);color:var(--cr-fallback-color-on-surface)}',
-    '.ds-btn-secondary:hover{background:var(--cr-fallback-color-surface-1)}',
-    '.ds-btn-sm{padding:4px 12px;font-size:var(--cr-font-size-xs)}',
-    '.ds-qa-entry{border:1px solid var(--cr-fallback-color-outline);padding:var(--cr-space-3);border-radius:var(--cr-radius-sm);margin-bottom:var(--cr-space-2)}',
-  ].join('\n');
-  document.head.appendChild(s);
-}
+injectPanelCSS();
 
 // ============================================================
 // HTML — Dual-column layout
@@ -369,8 +32,8 @@ function injectPanelHTML() {
   // Pet ball
   var pet = document.createElement('div');
   pet.id = '__ds-pet-ball';
-  pet.textContent = '[DS]';
-  pet.title = 'DS-Agent v2.5';
+  pet.textContent = '\uD83E\uDD16';
+  pet.title = 'DS-Agent v2.6';
   pet.addEventListener('mousedown', startPetDrag);
   document.body.appendChild(pet);
 
@@ -397,11 +60,12 @@ function buildPanelHTML() {
     '  <div id="__ds-header-left">',
     '    <span id="__ds-logo" class="ds-logo">[DS]</span>',
     '    <span id="__ds-title">Agent</span>',
-    '    <span id="__ds-version">v2.5</span>',
+    '    <span id="__ds-version">v2.6</span>',
     '  </div>',
     '  <div id="__ds-status">',
     '    <span id="__ds-dot"></span>',
     '    <span id="__ds-status-text">Checking...</span>',
+    '    <span id="__ds-sse-badge" class="ds-sse-badge" title="SSE Stream Intercept Mode">SSE</span>',
     '  </div>',
     '  <div id="__ds-header-btns">',
     '    <button class="ds-hbtn" id="__ds-btn-minimize" title="Minimize">&#8722;</button>',
@@ -449,6 +113,11 @@ function buildPanelHTML() {
     '</div>',
 
     '<div id="__ds-bottom-bar">',
+    '  <div id="__ds-builtin-btns">',
+    '    <button class="ds-qbtn ds-qbtn-builtin" id="__ds-btn-inject-tools" title="从服务器获取最新工具列表并注入提示词">&#128295; 工具提示词</button>',
+    '    <button class="ds-qbtn ds-qbtn-builtin" id="__ds-btn-init-memory" title="检测记忆状态：空则初始化，有则恢复">&#129504; 记忆管理</button>',
+    '    <button class="ds-qbtn ds-qbtn-builtin" id="__ds-btn-retry-tool" title="让AI重试上一次失败的工具调用">&#128260; 工具重试</button>',
+    '  </div>',
     '  <div id="__ds-quick-btns"></div>',
     '  <div id="__ds-status-line">',
     '    <span id="__ds-agent-status-text">Agent Not Ready</span>',
@@ -527,6 +196,27 @@ function bindPanelEvents() {
   // Quick actions edit
   var editQABtn = document.getElementById('__ds-btn-edit-qa');
   if (editQABtn) editQABtn.onclick = function() { showQAEditor(window.__ds_quickActions || []); };
+
+  var btnInjectTools = document.getElementById('__ds-btn-inject-tools');
+  if (btnInjectTools) btnInjectTools.onclick = function() {
+    logPanel('info', '🛠 注入工具提示词...');
+    if (window.injectToolPrompt) window.injectToolPrompt();
+    else logPanel('error', 'injectToolPrompt 未加载');
+  };
+
+  var btnInitMemory = document.getElementById('__ds-btn-init-memory');
+  if (btnInitMemory) btnInitMemory.onclick = function() {
+    logPanel('info', '🧠 检测记忆状态...');
+    if (window.smartAgentAction) window.smartAgentAction();
+    else logPanel('error', 'smartAgentAction 未加载');
+  };
+
+  var btnRetryTool = document.getElementById('__ds-btn-retry-tool');
+  if (btnRetryTool) btnRetryTool.onclick = function() {
+    logPanel('info', '🔄 发送工具重试提示...');
+    if (window.retryToolPrompt) window.retryToolPrompt();
+    else logPanel('error', 'retryToolPrompt 未加载');
+  };
 
   // Add skill
   var addSkillBtn = document.getElementById('__ds-btn-add-skill');
@@ -900,6 +590,18 @@ function setStageText(text) {
   if (el) el.textContent = text || 'Connected';
 }
 
+function updateSSEIndicator(active) {
+  var badge = document.getElementById('__ds-sse-badge');
+  if (!badge) return;
+  if (active) {
+    badge.classList.add('active');
+    badge.title = 'SSE Stream Intercept: Active (v2.6)';
+  } else {
+    badge.classList.remove('active');
+    badge.title = 'SSE Stream Intercept: Idle (v2.6)';
+  }
+}
+
 // ============================================================
 // QA Editor modal
 // ============================================================
@@ -977,6 +679,8 @@ window.showQuickActionsEditor = showQAEditor;
 window.showSettingsModal = function() {};
 window.hideAllModals = hideAllModals;
 window.logPanel = logPanel;
+window.updateSSEIndicator = updateSSEIndicator;
+window.__ds_retryConnect = function() { logPanel('info', '手动重试连接...'); if (typeof window.ensureServerRunning === 'function') window.ensureServerRunning(); };
 
 // ============================================================
 // Auto init
@@ -987,7 +691,7 @@ window.logPanel = logPanel;
   injectPanelHTML();
   var pet = document.getElementById('__ds-pet-ball');
   var panel = document.getElementById('__ds-agent-panel');
-  console.log('[DS-Agent v2.5] Panel injected. Pet:', !!pet, 'Panel:', !!panel, 'Panel display:', panel ? panel.style.display : 'N/A');
+  console.log('[DS-Agent v2.6] Panel injected. Pet:', !!pet, 'Panel:', !!panel, 'Panel display:', panel ? panel.style.display : 'N/A');
 
   var __ds_healthTimer = null;
 
@@ -1010,5 +714,5 @@ window.logPanel = logPanel;
     startHealthPolling();
   }, 1000);
 
-  console.log('[Agent v2.5] Panel injected with Chromium UI tokens');
+  console.log('[DS-Agent v2.6] Panel injected with Chromium UI tokens + SSE Stream Intercept');
 })();

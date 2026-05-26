@@ -1,12 +1,12 @@
 {
     "name": "com.deepseek.tool_agent",
+    "description": "DeepSeek Tool Agent - Native Messaging Host",
+    "path": "F:\\node\\node.exe",
+    "type": "stdio",
     "allowed_origins": [
         "chrome-extension://diaocpmadbepofacimmkigkkkeihnjio/"
     ],
-    "description": "DeepSeek Tool Agent - 本地工具执行服务",
-    "path": "F:\\\\node\\\\node.exe",
-    "type": "stdio",
     "args": [
-        "F:\\\\桌面\\\\web_free_agent\\\\deepseek-tool-agent\\\\native-messaging\\\\native-host.js"
+        "F:\\桌面\\web_free_agent\\deepseek-tool-agent\\native-messaging\\native-host.js"
     ]
 }

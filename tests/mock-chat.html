@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepSeek Chat</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f5f5f5; color: #202124; min-height: 100vh;
+  }
+  #chat-container {
+    max-width: 800px; margin: 40px auto; background: #fff;
+    border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.08);
+    min-height: 600px; display: flex; flex-direction: column;
+  }
+  #chat-header {
+    padding: 16px 20px; border-bottom: 1px solid #e0e0e0;
+    font-size: 16px; font-weight: 600; color: #1a73e8;
+    display: flex; align-items: center; gap: 8px;
+  }
+  #chat-messages {
+    flex: 1; padding: 20px; overflow-y: auto; min-height: 400px;
+  }
+  .chat-message {
+    margin-bottom: 16px; padding: 12px 16px; border-radius: 8px;
+    max-width: 85%; line-height: 1.6; font-size: 14px;
+  }
+  .chat-message.user {
+    background: #e8f0fe; margin-left: auto; color: #1a73e8;
+  }
+  .chat-message.assistant {
+    background: #f8f9fa; margin-right: auto; color: #202124;
+  }
+  #chat-input-area {
+    padding: 12px 20px; border-top: 1px solid #e0e0e0;
+    display: flex; gap: 8px;
+  }
+  #chat-input {
+    flex: 1; padding: 10px 14px; border: 1px solid #dadce0;
+    border-radius: 8px; font-size: 14px; outline: none;
+    font-family: inherit;
+  }
+  #chat-input:focus { border-color: #1a73e8; }
+  #send-btn {
+    padding: 10px 20px; background: #1a73e8; color: #fff;
+    border: none; border-radius: 8px; cursor: pointer; font-size: 14px;
+    font-weight: 500;
+  }
+  #send-btn:hover { background: #1557b0; }
+  .status-bar {
+    padding: 6px 20px; font-size: 11px; color: #5f6368;
+    border-top: 1px solid #e0e0e0; text-align: center;
+  }
+</style>
+</head>
+<body>
+<div id="chat-container">
+  <div id="chat-header">[DS] DeepSeek Chat — Mock Test Page</div>
+  <div id="chat-messages" class="ds-markdown">
+    <div class="chat-message assistant">
+      你好！我是 DeepSeek AI 助手。<br>这是一个模拟测试页面，用于验证 DS-Agent v2.5 扩展功能。
+    </div>
+  </div>
+  <div id="chat-input-area">
+    <input type="text" id="chat-input" placeholder="输入消息..." />
+    <button id="send-btn">发送</button>
+  </div>
+  <div class="status-bar">DS-Agent v2.6 Test Page — chrome-extension loaded</div>
+</div>
+</body>
+</html>

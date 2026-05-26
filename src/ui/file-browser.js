@@ -6,7 +6,7 @@ async function loadFileBrowser(dirPath) {
   if (!wsPath) { treeEl.innerHTML = '<div class="__ds-file-error">未设置工作区路径<br>请点击 ⚙️ 设置</div>'; return; }
   updateWorkspaceDisplay(wsPath);
   try {
-    var response = await fetch('http://localhost:3002/exec', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool: 'list_dir', args: { path: wsPath } }) });
+    var response = await fetch(getEndpoint('exec'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool: 'list_dir', args: { path: wsPath } }) });
     if (!response.ok) throw new Error('服务器响应错误');
     var data = await response.json();
     if (!data.success) throw new Error(data.error ? (data.error.message || '读取目录失败') : '读取目录失败');
@@ -71,7 +71,7 @@ async function previewFile(filePath) {
   nameEl.textContent = filePath.split(/[\\/]/).pop();
   contentEl.textContent = '加载中...';
   try {
-    var response = await fetch('http://localhost:3002/exec', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool: 'read_file', args: { path: filePath } }) });
+    var response = await fetch(getEndpoint('exec'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool: 'read_file', args: { path: filePath } }) });
     if (!response.ok) throw new Error('读取失败');
     var data = await response.json();
     if (!data.success) throw new Error(data.error ? (data.error.message || '读取失败') : '读取失败');
@@ -91,7 +91,7 @@ function getWorkspacePath() {
     chrome.storage.local.get(['workspacePath'], function(result) {
       if (result.workspacePath) resolve(result.workspacePath);
       else {
-        fetch('http://localhost:3002/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'get' }) })
+        fetch(getEndpoint('config'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'get' }) })
           .then(function(r) { return r.json(); })
           .then(function(data) {
             if (data.success && data.workspace) { chrome.storage.local.set({ workspacePath: data.workspace }); resolve(data.workspace); }

@@ -13,22 +13,24 @@
 const http = require('http');
 const fs = require('fs').promises;
 const path = require('path');
+const { spawn } = require('child_process');
 const { ToolRegistry, jsonResult } = require('./tool-registry');
 const { PluginRegistry } = require('./plugin-loader');
 const crossPlatform = require('./cross-platform');
 
 const PORT = 3002;
-const ENGINE_VERSION = '2.5.0';
+const ENGINE_VERSION = '2.6.0';
 const SERVER_DIR = path.resolve(__dirname);
-const WORKSPACE_DIR = path.resolve(__dirname, '..', 'workspace');
-const CONFIG_DIR = path.join(WORKSPACE_DIR, 'config');
-const MEMORY_DIR = path.join(WORKSPACE_DIR, 'memory');
-const SKILLS_DIR = path.join(WORKSPACE_DIR, 'skills');
-const PLUGINS_DIR = path.join(WORKSPACE_DIR, 'plugins');
-const BUILTIN_SKILLS_DIR = path.join(SERVER_DIR, 'builtin-skills');
-const LOGS_DIR = path.join(SERVER_DIR, 'logs');
 
-let ALLOWED_WRITE_PATHS = [WORKSPACE_DIR];
+var WORKSPACE_DIR = path.resolve(__dirname, '..', 'workspace');
+var CONFIG_DIR = path.join(WORKSPACE_DIR, 'config');
+var MEMORY_DIR = path.join(WORKSPACE_DIR, 'memory');
+var SKILLS_DIR = path.join(WORKSPACE_DIR, 'skills');
+var PLUGINS_DIR = path.join(WORKSPACE_DIR, 'plugins');
+var BUILTIN_SKILLS_DIR = path.join(SERVER_DIR, 'builtin-skills');
+var LOGS_DIR = path.join(SERVER_DIR, 'logs');
+
+var ALLOWED_WRITE_PATHS = [WORKSPACE_DIR];
 
 // ============================================================
 // 全局实例
@@ -688,6 +690,16 @@ var server = http.createServer(async function(req, res) {
           }
           break;
 
+        // --- 飞书消息队列 ---
+        case '/api/feishu/messages':
+          result = await handleFeishuMessages(body, req.method, urlPath);
+          break;
+
+        // --- 飞书回复回传 ---
+        case '/api/feishu/reply':
+          result = await handleFeishuReply(body);
+          break;
+
         // --- 已废弃: 兼容旧 API 端点 (v2.5+ 请使用 /exec) ---
         case '/api/read':
           result = await executeToolLegacy('read_file', { path: body.path });
@@ -805,6 +817,8 @@ async function executeToolLegacy(name, args) {
   return { content: result };
 }
 
+var GLOBAL_PERMISSIONS = false;
+
 async function handleConfig(body) {
   if (body.action === 'get') {
     var sysInfo = crossPlatform.getSystemInfo();
@@ -813,21 +827,117 @@ async function handleConfig(body) {
       allowedWritePaths: ALLOWED_WRITE_PATHS, platform: sysInfo.platform,
       port: PORT, version: ENGINE_VERSION,
       tools_count: toolRegistry.listTools().length,
-      plugins_count: pluginRegistry.plugins.length
+      plugins_count: pluginRegistry.plugins.length,
+      globalPermissions: GLOBAL_PERMISSIONS
     };
-  } else if (body.action === 'set-workspace' && body.path) {
-    var newPath = path.resolve(body.path);
-    await fs.mkdir(newPath, { recursive: true });
-    ALLOWED_WRITE_PATHS = [newPath];
-    return { success: true, workspace: newPath };
+  } else if (body.action === 'set-permissions') {
+    GLOBAL_PERMISSIONS = !!body.global;
+    if (GLOBAL_PERMISSIONS) {
+      ALLOWED_WRITE_PATHS = [WORKSPACE_DIR, '/'];
+    } else {
+      ALLOWED_WRITE_PATHS = [WORKSPACE_DIR];
+    }
+    toolRegistry.setGlobalPermissions(GLOBAL_PERMISSIONS);
+    return { success: true, globalPermissions: GLOBAL_PERMISSIONS };
   } else if (body.action === 'open-permissions') {
+    GLOBAL_PERMISSIONS = true;
     ALLOWED_WRITE_PATHS = [WORKSPACE_DIR, '/'];
-    return { success: true };
+    toolRegistry.setGlobalPermissions(true);
+    return { success: true, globalPermissions: true };
   } else if (body.action === 'restrict-permissions') {
+    GLOBAL_PERMISSIONS = false;
     ALLOWED_WRITE_PATHS = [WORKSPACE_DIR];
-    return { success: true };
+    toolRegistry.setGlobalPermissions(false);
+    return { success: true, globalPermissions: false };
   }
   return { success: false, error: '未知操作' };
+}
+
+// ============================================================
+// 飞书消息队列 — 监听器收消息后写入，前端扩展轮询读取并注入聊天
+// ============================================================
+var feishuQueue = [];
+
+async function handleFeishuMessages(body, method) {
+  if (method === 'GET') {
+    var pending = feishuQueue.filter(function(m) { return !m.processed; });
+    return { success: true, messages: pending, count: pending.length, queueTotal: feishuQueue.length };
+  }
+  if (method === 'POST') {
+    var msg = {
+      id: 'fs_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,6),
+      senderId: body.senderId || '',
+      chatId: body.chatId || '',
+      content: body.content || '',
+      messageType: body.messageType || 'text',
+      timestamp: body.timestamp || Date.now(),
+      processed: false,
+      receivedAt: Date.now()
+    };
+    feishuQueue.push(msg);
+    if (feishuQueue.length > 200) feishuQueue = feishuQueue.slice(-200);
+    console.log('[Feishu] 消息入队:', msg.id, msg.content.substring(0,40));
+    return { success: true, id: msg.id };
+  }
+  if (method === 'PUT' || method === 'PATCH') {
+    var found = null;
+    for (var i = 0; i < feishuQueue.length; i++) {
+      if (feishuQueue[i].id === body.id) { feishuQueue[i].processed = true; found = feishuQueue[i]; break; }
+    }
+    return { success: !!found, id: body.id, message: found ? '已标记处理' : '未找到' };
+  }
+  if (method === 'DELETE') {
+    feishuQueue = feishuQueue.filter(function(m) { return m.id !== body.id; });
+    return { success: true };
+  }
+  return { success: false, error: '不支持的请求方法' };
+}
+
+var LARK_CLI = process.env.APPDATA + '\\npm\\node_modules\\@larksuite\\cli\\bin\\lark-cli.exe';
+
+async function handleFeishuReply(body) {
+  if (!body.chatId || !body.text) {
+    return { success: false, error: '缺少 chatId 或 text' };
+  }
+
+  var text = body.text;
+  if (text.length > 4000) text = text.substring(0, 4000) + '...[已截断]';
+
+  return new Promise(function(resolve) {
+    var child = spawn(LARK_CLI, [
+      'im', '+messages-send',
+      '--chat-id', body.chatId,
+      '--text', text,
+      '--as', 'bot'
+    ], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true
+    });
+
+    var stdout = '';
+    var stderr = '';
+    child.stdout.on('data', function(d) { stdout += d.toString(); });
+    child.stderr.on('data', function(d) { stderr += d.toString(); });
+
+    child.on('close', function(code) {
+      console.log('[Feishu] 回复结果:', code === 0 ? 'OK' : 'FAIL', body.chatId, text.substring(0, 30));
+      if (code === 0) {
+        try {
+          var r = JSON.parse(stdout);
+          resolve({ success: true, messageId: r.message_id || r.data?.message_id || '' });
+        } catch(e) {
+          resolve({ success: true, raw: stdout });
+        }
+      } else {
+        resolve({ success: false, error: stderr || stdout, exitCode: code });
+      }
+    });
+
+    child.on('error', function(e) {
+      console.log('[Feishu] 回复错误:', e.message);
+      resolve({ success: false, error: e.message });
+    });
+  });
 }
 
 function parseBody(req) {

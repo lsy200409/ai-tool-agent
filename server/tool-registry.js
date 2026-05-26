@@ -42,6 +42,7 @@ function createToolContext(options) {
     agentDir: options.agentDir || '',
     sessionKey: options.sessionKey || '',
     sandboxed: options.sandboxed || false,
+    globalPermissions: options.globalPermissions || false,
     platform: process.platform,
     env: { ...process.env }
   };
@@ -159,9 +160,11 @@ function buildBuiltinTools(ctx) {
         required: ['command']
       },
       execute: async (_toolCallId, args) => {
-        const danger = detectDangerousCommand(args.command);
-        if (danger) {
-          return jsonResult({ success: true, blocked: true, reason: danger.reason, command: args.command, stdout: '', stderr: '' });
+        if (!ctx.globalPermissions) {
+          const danger = detectDangerousCommand(args.command);
+          if (danger) {
+            return jsonResult({ success: true, blocked: true, reason: danger.reason, command: args.command, stdout: '', stderr: '' });
+          }
         }
         const workDir = args.cwd ? resolvePath(args.cwd, wsDir) : wsDir;
         try {
@@ -199,21 +202,32 @@ class ToolRegistry {
     this._afterHooks = [];
     this._workspaceDir = workspaceDir;
     this._pluginTools = new Map();
+    this._globalPermissions = false;
     this._registerBuiltins();
   }
 
   // --- 注册 ---
   _registerBuiltins() {
-    const ctx = createToolContext({ workspaceDir: this._workspaceDir });
+    const ctx = createToolContext({ workspaceDir: this._workspaceDir, globalPermissions: this._globalPermissions });
     const tools = buildBuiltinTools(ctx);
     for (const tool of tools) {
       this._tools.set(tool.name, tool);
     }
   }
 
+  setGlobalPermissions(enabled) {
+    this._globalPermissions = !!enabled;
+    var pluginEntries = new Map();
+    for (var [name, pluginId] of this._pluginTools) pluginEntries.set(name, pluginId);
+    this._tools.clear();
+    this._pluginTools.clear();
+    this._registerBuiltins();
+    for (var [name, pluginId] of pluginEntries) this._pluginTools.set(name, pluginId);
+  }
+
   registerTool(factory, opts) {
     if (typeof factory === 'function') {
-      const ctx = createToolContext({ workspaceDir: this._workspaceDir });
+      const ctx = createToolContext({ workspaceDir: this._workspaceDir, globalPermissions: this._globalPermissions });
       const result = factory(ctx);
       const tools = Array.isArray(result) ? result : (result ? [result] : []);
       for (const tool of tools) {

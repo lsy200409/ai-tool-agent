@@ -3,7 +3,7 @@
 // 不包含 UI 渲染代码，所有UI由 panel.js 负责
 // ============================================================
 
-var API_BASE = 'http://localhost:3002';
+var getApiBase = function() { return getServerUrl(); };
 var FETCH_TIMEOUT = 5000;
 
 function apiFetch(path, body) {
@@ -13,7 +13,7 @@ function apiFetch(path, body) {
   };
   if (body) options.body = JSON.stringify(body);
   try { options.signal = AbortSignal.timeout(FETCH_TIMEOUT); } catch(e) {}
-  return fetch(API_BASE + path, options);
+  return fetch(getApiBase() + path, options);
 }
 
 function apiPost(path, body) { return apiFetch(path, body); }
@@ -22,36 +22,37 @@ function apiJson(path, body) { return apiFetch(path, body).then(function(r) { re
 function apiGetJson(path) { return apiGet(path).then(function(r) { return r.json(); }); }
 
 // ============================================================
-// Agent 初始化
+// Agent 初始化 — v2.5: 对话式引导画像构建（借鉴 OpenClaw onboarding）
+// 首次会话 → AI引导用户完成身份/灵魂/画像对话 → 写入记忆
+// 后续会话 → AI从记忆加载画像 → 用已设定人格交互
 // ============================================================
 async function initAgent() {
-  var btn = document.getElementById('__ds-btn-agent-init');
-  var reinitBtn = document.getElementById('__ds-btn-reinit');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ 初始化中...'; }
-  if (reinitBtn) { reinitBtn.disabled = true; reinitBtn.textContent = '⏳ 重新初始化中...'; }
-
   console.log('[actions] initAgent 开始');
-  logPanel('info', '正在初始化 Agent...');
+  logPanel('info', '正在检查记忆状态...');
+
+  var isFirstTime = true;
 
   try {
-    var memResp = await apiJson('/api/agent/memory', { action: 'init' });
-    if (memResp.success) logPanel('success', '记忆系统已初始化');
-    else logPanel('warn', '初始化记忆: ' + (memResp.message || memResp.error || '未知状态'));
-  } catch(e) { logPanel('warn', '初始化记忆异常: ' + e.message); }
+    var memResp = await apiJson('/api/agent/memory', { action: 'stats' });
+    if (memResp.success && memResp.totalRecords > 0) {
+      isFirstTime = false;
+      logPanel('info', '检测到已有记忆 (' + memResp.totalRecords + ' 条)，进入回归模式');
+    } else {
+      logPanel('info', '记忆为空，进入首次设置模式');
+    }
+  } catch(e) {
+    logPanel('warn', '无法检查记忆状态，使用首次设置模式');
+  }
 
-  try {
-    var persResp = await apiJson('/api/agent/personality', { action: 'reset' });
-    if (persResp.success) logPanel('success', '人格已重置为默认');
-    else logPanel('warn', '重置人格: ' + (persResp.message || persResp.error || '未知状态'));
-  } catch(e) { logPanel('warn', '重置人格异常: ' + e.message); }
+  var initPrompt = isFirstTime ? buildSetupPrompt() : buildRecallPrompt();
+  logPanel('success', (isFirstTime ? '首次设置' : '回归模式') + ' Prompt 已构建 (' + initPrompt.length + ' chars)');
 
-  var initPrompt = buildInitAgentPrompt();
   var input = findChatInput();
   if (input) {
     setInputValue(input, initPrompt);
     await sleep(600);
     clickSendButton();
-    logPanel('success', '初始化提示词已注入并发送');
+    logPanel('success', isFirstTime ? '首次设置提示已发送' : '记忆恢复提示已发送');
   } else {
     logPanel('error', '找不到 DeepSeek 输入框');
   }
@@ -62,43 +63,158 @@ async function initAgent() {
   setStageText('监听中');
   updateAutoButtonState();
 
-  if (btn) { btn.disabled = false; btn.textContent = '🚀 初始化 Agent'; }
-  if (reinitBtn) { reinitBtn.disabled = false; reinitBtn.textContent = '🔄 重新初始化'; }
-
-  // 同步完整状态到面板
   await syncFullState();
+  return isFirstTime;
 }
 
-function buildInitAgentPrompt() {
-  var lines = [];
-  lines.push('## Agent 初始化流程');
-  lines.push('');
-  lines.push('你刚刚完成了初始化。请按以下步骤了解你的工作环境：');
-  lines.push('');
-  lines.push('### 第一步：了解工作区');
-  lines.push('使用 list_dir 工具列出工作区根目录，了解项目结构。');
-  lines.push('');
-  lines.push('### 第二步：了解可用工具');
-  lines.push('- read_file: 读取本地文件内容');
-  lines.push('- write_file: 写入内容到本地文件');
-  lines.push('- list_dir: 列出指定目录下的文件和子目录');
-  lines.push('- exec_command: 执行命令行并返回输出');
-  lines.push('- append_file: 追加内容到本地文件末尾');
-  lines.push('- search_files: 在指定目录中搜索文件名匹配的文件');
-  lines.push('- get_file_info: 获取文件详细信息（大小、修改时间等）');
-  lines.push('');
-  lines.push('### 第三步：技能系统');
-  lines.push('工作区 skills/ 目录下有可用的技能（SKILL.md 格式）。');
-  lines.push('使用 list_dir 查看 skills/ 目录，然后读取你感兴趣的 SKILL.md 文件。');
-  lines.push('');
-  lines.push('### 第四步：工具调用格式');
-  lines.push('调用工具时使用以下 XML 格式：');
-  lines.push('<tool_call name="工具名">');
-  lines.push('{"参数名":"参数值"}');
-  lines.push('</tool_call>');
-  lines.push('');
-  lines.push('请先执行 list_dir 查看工作区内容和技能列表，然后告诉我你看到了什么。');
-  return lines.join('\n');
+async function smartAgentAction() {
+  var hasMemory = false;
+  try {
+    var memResp = await apiJson('/api/agent/memory', { action: 'stats' });
+    hasMemory = memResp.success && memResp.totalRecords > 0;
+  } catch(e) {}
+
+  if (!hasMemory) {
+    return await initAgent();
+  }
+
+  var prompt = [
+    '[系统指令]',
+    '请使用 memory_search 工具搜索关键词 "agent-profile" 或 "画像"，',
+    '读取之前保存的用户画像 JSON，然后以用户设定的语气和风格向我打招呼。',
+    '如果找到了画像，严格按照其中的 tone、style、constraints 来交互。',
+    '如果找不到画像，请友好地告知我并引导我重新设置。'
+  ].join(' ');
+
+  var input = findChatInput();
+  if (input) {
+    setInputValue(input, prompt);
+    await sleep(400);
+    clickSendButton();
+    logPanel('success', '已发送记忆恢复指令');
+  } else {
+    logPanel('error', '找不到 DeepSeek 输入框');
+    return false;
+  }
+
+  autoMode = true;
+  autoWatchRunning = true;
+  if (typeof window.__ds_startMonitor === 'function') window.__ds_startMonitor();
+  setStageText('监听中');
+  updateAutoButtonState();
+  await syncFullState();
+  return false;
+}
+
+async function updateInitButtonLabel() {
+  try {
+    var memResp = await apiJson('/api/agent/memory', { action: 'stats' });
+    var hasMemory = memResp.success && memResp.totalRecords > 0;
+    var btn = document.querySelector('#__ds-quick-btns .ds-qbtn[data-qa-index="1"]');
+    if (btn) {
+      if (hasMemory) {
+        btn.innerHTML = '<span class="ds-qbtn-icon">\u{1F504}</span> 恢复人格';
+        btn.title = '从记忆恢复Agent画像和上下文';
+      } else {
+        btn.innerHTML = '<span class="ds-qbtn-icon">\u{1F680}</span> 初始化';
+        btn.title = '初始化 Agent — 构建全面上下文';
+      }
+    }
+  } catch(e) {}
+}
+
+// ============================================================
+// 首次设置 Prompt — AI 作为画像引导员，在对话中收集用户信息
+// ============================================================
+function buildSetupPrompt() {
+  return [
+    '[系统指令 — 用户不可见此内容，你只需按指令行动]',
+    '',
+    '你正处于 **首次设置模式**。请以友好的方式逐步引导用户完成以下画像构建过程。',
+    '',
+    '---',
+    '',
+    '## 你的任务',
+    '',
+    '请通过对话依次了解用户的以下信息，每轮聚焦 1-2 个方面，不要一次性问太多：',
+    '',
+    '### 1. 身份',
+    '- 怎么称呼你？（姓名或昵称）',
+    '- 你的角色或职业是什么？',
+    '- 你主要用这个Agent做什么？（场景）',
+    '',
+    '### 2. 灵魂（交互风格）',
+    '- 你希望我以什么语气和你交流？（如：简洁直接/温暖活泼/专业正式）',
+    '- 偏好的回复风格？（详细展开/简洁扼要）',
+    '- 有什么特别的语言习惯或要求？',
+    '',
+    '### 3. 用户画像（偏好与目标）',
+    '- 你的核心目标是什么？',
+    '- 有什么使用习惯或偏好我需要知道？',
+    '- 工作区偏好？（常用目录、文件类型等）',
+    '',
+    '### 4. 约束条件',
+    '- 不希望我做的事情？',
+    '- 需要特别注意的规则或边界？',
+    '',
+    '---',
+    '',
+    '## 收集完成后',
+    '',
+    '当所有信息收集完毕并获得用户确认后，请使用 **memory_save** 工具保存以下内容：',
+    '',
+    '- `sessionId`: "agent-profile"',
+    '- `role`: "system"',
+    '- `content`: 一条结构化的JSON画像，格式为：',
+    '```',
+    '{"name":"用户姓名","role":"用户角色","tone":"语气偏好","style":"回复风格",',
+    ' "scene":"使用场景","goals":["目标1","目标2"],',
+    ' "constraints":["约束1","约束2"],"notes":"其他备注"}',
+    '```',
+    '',
+    '保存完毕后，告诉用户："画像已保存！下次新会话我会自动加载这些信息。"',
+    '',
+    '---',
+    '',
+    '## 重要规则',
+    '- 用中文交流',
+    '- 保持友好的对话节奏，不要让用户觉得在填表',
+    '- 可以穿插一些轻松的表达，展现你的个性',
+    '- 如果用户不想回答某些问题，跳过即可',
+    '- 全程不要主动调用其他工具（read_file/exec_command等），只专注于画像收集',
+    '- 收集过程中不要提 memory_save 的技术细节，只在最后确认时使用',
+    '',
+    '现在，用第一句话开始引导用户吧。'
+  ].join('\n');
+}
+
+// ============================================================
+// 回归 Prompt — AI 从记忆加载画像，恢复人格
+// ============================================================
+function buildRecallPrompt() {
+  return [
+    '[系统指令 — 用户不可见此内容，你只需按指令行动]',
+    '',
+    '你处于 **回归模式**。用户之前已经完成了画像设置。',
+    '',
+    '请执行以下步骤：',
+    '',
+    '1. 使用 `memory_search` 搜索关键词 "agent-profile 画像" 或使用 `memory_recall` 获取最近的记忆',
+    '2. 从记忆中找到用户画像 JSON，提取用户的身份、语气偏好、目标和约束',
+    '3. 以用户设定的人格向用户打招呼',
+    '',
+    '打招呼格式参考：',
+    '"欢迎回来，[用户名]！我已经加载了你之前的偏好设置：[简要复述关键信息]。今天有什么需要帮助的？"',
+    '',
+    '---',
+    '',
+    '## 重要规则',
+    '- 画像加载后，全程使用用户设定的语气和风格',
+    '- 如果记忆中没有找到画像，友好地告诉用户"这是你第一次使用吗？"然后转入首次设置模式',
+    '- 用中文交流',
+    '',
+    '现在，开始加载记忆吧。'
+  ].join('\n');
 }
 
 // ============================================================
@@ -139,6 +255,70 @@ async function triggerQuickAction(promptOrIndex) {
     logPanel('success', '快捷操作已发送');
   } else {
     logPanel('error', '找不到 DeepSeek 输入框');
+  }
+}
+
+async function injectToolPrompt() {
+  logPanel('info', '正在获取实时工具列表...');
+  try {
+    var toolsResp = await apiGetJson('/api/tools');
+    if (!toolsResp.success || !toolsResp.tools) {
+      logPanel('error', '获取工具列表失败');
+      return;
+    }
+
+    var tools = toolsResp.tools;
+    var autoTools = [];
+    var otherTools = [];
+
+    for (var i = 0; i < tools.length; i++) {
+      var t = tools[i];
+      if (t.pluginId === 'builtin' && t.name.indexOf('plugin_') === 0) {
+        otherTools.push(t);
+      } else {
+        autoTools.push(t);
+      }
+    }
+
+    var prompt = '你是 AI 助手，可以使用以下真实工具完成任务。\n\n## 可用工具\n\n';
+
+    for (var i = 0; i < autoTools.length; i++) {
+      var t = autoTools[i];
+      prompt += '### ' + t.name + '\n';
+      prompt += t.description + '\n';
+      var props = (t.parameters && t.parameters.properties) ? t.parameters.properties : {};
+      var required = (t.parameters && t.parameters.required) || [];
+      var keys = Object.keys(props);
+      for (var j = 0; j < keys.length; j++) {
+        var k = keys[j];
+        prompt += '  ' + k + ': ' + props[k].type + (required.indexOf(k) >= 0 ? ' [必填]' : ' [可选]') + '\n';
+      }
+      prompt += '\n';
+    }
+
+    if (otherTools.length > 0) {
+      prompt += '## 插件管理工具\n\n';
+      for (var i = 0; i < otherTools.length; i++) {
+        var t = otherTools[i];
+        prompt += '### ' + t.name + '\n' + t.description + '\n\n';
+      }
+    }
+
+    prompt += '## 调用格式\n';
+    prompt += '<tool_call name="工具名">\n{"参数":"值"}\n</tool_call>\n\n';
+    prompt += '结果以 <tool_response status="ok|error"> 返回。无需工具时直接回复。';
+
+    var input = findChatInput();
+    if (input) {
+      setInputValue(input, prompt);
+      await sleep(400);
+      clickSendButton();
+      logPanel('success', '工具提示词已注入 (' + tools.length + ' 个工具, 含插件)');
+    } else {
+      logPanel('error', '找不到 DeepSeek 输入框');
+    }
+  } catch(e) {
+    logPanel('error', '注入工具提示词失败: ' + e.message);
   }
 }
 
@@ -329,16 +509,6 @@ async function testConnection() {
   return false;
 }
 
-async function updateWorkspacePath(newPath) {
-  logPanel('info', '正在更新工作区路径: ' + newPath);
-  try {
-    var data = await apiJson('/api/config', { action: 'set-workspace', path: newPath });
-    if (data.success) { logPanel('success', '工作区已更新: ' + newPath); return true; }
-    logPanel('error', '更新工作区失败: ' + (data.error || ''));
-  } catch(e) { logPanel('error', '更新工作区失败: ' + e.message); }
-  return false;
-}
-
 async function openPermissions() {
   try {
     var data = await apiJson('/api/config', { action: 'open-permissions' });
@@ -435,12 +605,185 @@ window.__ds_viewRawLogs = function() {
 };
 
 // ============================================================
+// 飞书桥接 — 轮询消息队列，自动注入到 DeepSeek 聊天
+// ============================================================
+var feishuPollTimer = null;
+var feishuLastProcessedId = null;
+var feishuPendingReplies = {};
+var feishuReplyWatcherTimer = null;
+var feishuInjectedKeys = [];
+var feishuLastInjectTime = 0;
+var FEISHU_INJECT_COOLDOWN = 5000;
+var FEISHU_DEDUP_WINDOW = 15000;
+
+function hashFeishuKey(senderId, content) {
+  var h = 0;
+  var key = (senderId || '') + '::' + content;
+  for (var i = 0; i < key.length; i++) {
+    h = ((h << 5) - h + key.charCodeAt(i)) | 0;
+  }
+  return h;
+}
+
+function isFeishuDuplicate(msg) {
+  var h = hashFeishuKey(msg.senderId, msg.content);
+  var now = Date.now();
+  feishuInjectedKeys = feishuInjectedKeys.filter(function(e) { return now - e.time < FEISHU_DEDUP_WINDOW; });
+  for (var i = 0; i < feishuInjectedKeys.length; i++) {
+    if (feishuInjectedKeys[i].key === h) return true;
+  }
+  feishuInjectedKeys.push({ key: h, time: now });
+  if (feishuInjectedKeys.length > 50) feishuInjectedKeys = feishuInjectedKeys.slice(-50);
+  return false;
+}
+
+function startFeishuBridge() {
+  if (feishuPollTimer) return;
+  console.log('[feishu-bridge] 启动飞书消息桥接 (3s 轮询)');
+  feishuPollTimer = setInterval(pollFeishuQueue, 3000);
+}
+
+function stopFeishuBridge() {
+  if (feishuPollTimer) { clearInterval(feishuPollTimer); feishuPollTimer = null; }
+  if (feishuReplyWatcherTimer) { clearInterval(feishuReplyWatcherTimer); feishuReplyWatcherTimer = null; }
+  feishuPendingReplies = {};
+  feishuInjectedKeys = [];
+  feishuLastInjectTime = 0;
+}
+
+function startReplyWatcher() {
+  if (feishuReplyWatcherTimer) return;
+  feishuReplyWatcherTimer = setInterval(watchPendingReplies, 2000);
+}
+
+function watchPendingReplies() {
+  var keys = Object.keys(feishuPendingReplies);
+  if (keys.length === 0) {
+    if (feishuReplyWatcherTimer) { clearInterval(feishuReplyWatcherTimer); feishuReplyWatcherTimer = null; }
+    return;
+  }
+
+  var getState = window.__ds_getMonitorState || function() { return 'listening'; };
+  var state = getState();
+
+  for (var i = 0; i < keys.length; i++) {
+    var msgId = keys[i];
+    var entry = feishuPendingReplies[msgId];
+
+    if (entry.awaitingReply && state === 'listening' && !entry.replySent) {
+      var elapsed = Date.now() - entry.startTime;
+      if (elapsed < 3000) continue;
+
+      entry.replySent = true;
+      captureAndReplyFeishu(entry.chatId, msgId);
+    }
+
+    if (entry.replySent || Date.now() - entry.startTime > 120000) {
+      delete feishuPendingReplies[msgId];
+    }
+  }
+}
+
+async function captureAndReplyFeishu(chatId, msgId) {
+  try {
+    var aiText = '';
+    if (typeof getLatestAIMessageText === 'function') {
+      aiText = getLatestAIMessageText();
+    }
+    if (!aiText) {
+      var els = document.querySelectorAll('div.ds-assistant-message-main-content');
+      for (var i = els.length - 1; i >= 0; i--) {
+        aiText = (els[i].innerText || els[i].textContent || '').trim();
+        if (aiText) break;
+      }
+    }
+    if (!aiText) { console.log('[feishu-reply] 未找到AI回复'); return; }
+
+    if (aiText.length > 3000) aiText = aiText.substring(0, 3000) + '...[已截断]';
+
+    console.log('[feishu-reply] 回传AI回复到飞书 chatId=' + chatId + ' len=' + aiText.length);
+    var resp = await apiJson('/api/feishu/reply', { chatId: chatId, text: aiText }, 'POST');
+    if (resp.success) {
+      logPanel('success', 'AI回复已回传飞书 (' + aiText.length + '字)');
+    } else {
+      logPanel('error', '飞书回传失败: ' + (resp.error || 'unknown'));
+    }
+  } catch(e) {
+    console.log('[feishu-reply] 回传异常:', e.message);
+  }
+}
+
+async function pollFeishuQueue() {
+  try {
+    var resp = await apiGetJson('/api/feishu/messages');
+    if (!resp.success || !resp.messages || resp.messages.length === 0) return;
+
+    var pending = resp.messages.filter(function(m) { return m.id !== feishuLastProcessedId; });
+    if (pending.length === 0) return;
+
+    console.log('[feishu-bridge] 发现 ' + pending.length + ' 条新消息');
+
+    for (var i = 0; i < pending.length; i++) {
+      var msg = pending[i];
+      feishuLastProcessedId = msg.id;
+
+      apiJson('/api/feishu/messages', { action: 'mark processed' }, 'PUT').catch(function(){});
+
+      var waited = 0;
+      var getState = window.__ds_getMonitorState || function() { return 'listening'; };
+      while (getState() !== 'listening' && waited < 15000) {
+        await sleep(500);
+        waited += 500;
+      }
+
+      var input = findChatInput();
+      if (input && msg.content) {
+        if (isFeishuDuplicate(msg)) {
+          console.log('[feishu-bridge] 跳过重复(sender+内容 15s内):', msg.content.substring(0, 40));
+          continue;
+        }
+        var now = Date.now();
+        if (now - feishuLastInjectTime < FEISHU_INJECT_COOLDOWN) {
+          console.log('[feishu-bridge] 冷却中，跳过:', msg.content.substring(0, 40));
+          continue;
+        }
+        feishuLastInjectTime = now;
+
+        var injectText = '[来自飞书] ' + (msg.senderId ? msg.senderId.substring(0,8) + ': ' : '') + msg.content;
+        setInputValue(input, injectText);
+        await sleep(400);
+        clickSendButton();
+
+        if (msg.chatId) {
+          feishuPendingReplies[msg.id] = { chatId: msg.chatId, startTime: Date.now(), awaitingReply: false };
+          setTimeout(function(mid) {
+            var e = feishuPendingReplies[mid];
+            if (e) e.awaitingReply = true;
+            startReplyWatcher();
+          }, 2000, msg.id);
+        }
+
+        logPanel('info', '飞书消息已注入: ' + msg.content.substring(0,30));
+        console.log('[feishu-bridge] 已注入:', injectText);
+      }
+    }
+
+    try {
+      for (var j = 0; j < pending.length; j++) {
+        await apiJson('/api/feishu/messages', { id: pending[j].id }, 'PUT');
+      }
+    } catch(e) {}
+  } catch(e) {
+    console.log('[feishu-bridge] 轮询失败:', e.message);
+  }
+}
+
+// ============================================================
 // 导出到 window（供 panel.js 调用）
 // ============================================================
 window.__ds_initAgent = initAgent;
 window.__ds_exportLogs = exportLogsDownload;
 window.__ds_onToolModeChange = setToolMode;
-window.__ds_updateWorkspace = updateWorkspacePath;
 window.__ds_syncFullState = syncFullState;
 window.__ds_testConnection = testConnection;
 window.__ds_toggleSkill = toggleSkill;
@@ -448,6 +791,95 @@ window.__ds_saveQuickActions = saveQuickActions;
 window.__ds_loadQuickActions = loadQuickActions;
 window.__ds_openPermissions = openPermissions;
 window.__ds_restrictPermissions = restrictPermissions;
+window.__ds_startFeishuBridge = startFeishuBridge;
+window.__ds_stopFeishuBridge = stopFeishuBridge;
+window.__ds_injectToolPrompt = injectToolPrompt;
+window.__ds_smartAgentAction = smartAgentAction;
+window.__ds_updateInitButtonLabel = updateInitButtonLabel;
+
+// ============================================================
+// 工具重试提示词 — 检测最近执行历史，构造针对性重试指令
+// ============================================================
+async function retryToolPrompt() {
+  var monitor = window.__ds_monitor;
+  var hasRecentFailure = false;
+  var lastToolName = '';
+  var failureCount = 0;
+
+  if (monitor) {
+    lastToolName = monitor._lastExecutedTool || '';
+    failureCount = monitor._consecutiveFailures || 0;
+    hasRecentFailure = failureCount > 0;
+  }
+
+  var recentErrors = [];
+  if (executionHistory && executionHistory.length > 0) {
+    for (var i = Math.max(0, executionHistory.length - 20); i < executionHistory.length; i++) {
+      var log = executionHistory[i];
+      if (log.level === 'error') {
+        recentErrors.push('[' + (log.time || '') + '] ' + (log.message || ''));
+      }
+    }
+  }
+
+  var prompt;
+
+  if (hasRecentFailure && lastToolName) {
+    prompt = [
+      '[系统指令 — 工具重试]',
+      '',
+      '你刚才使用工具 `' + lastToolName + '` 连续失败了 ' + failureCount + ' 次。',
+      '',
+      '请分析以下错误信息，调整参数后重试：'
+    ].join('\n');
+
+    if (recentErrors.length > 0) {
+      prompt += '\n\n## 最近错误日志\n';
+      for (var e = 0; e < Math.min(recentErrors.length, 5); e++) {
+        prompt += '- ' + recentErrors[e] + '\n';
+      }
+    }
+
+    prompt += '\n## 重试规则\n';
+    prompt += '1. 检查工具参数是否正确（路径是否存在、格式是否正确）\n';
+    prompt += '2. 尝试使用替代方案（如 read_file 失败 → 用 exec_command "type path" 代替）\n';
+    prompt += '3. 如果是权限问题，尝试换一个目录操作\n';
+    prompt += '4. 最多重试 2 次，如果仍然失败请分析原因并告知用户\n';
+  } else if (recentErrors.length > 0) {
+    prompt = [
+      '[系统指令 — 工具重试]',
+      '',
+      '最近有一些工具调用错误，请分析以下错误日志并尝试修复：',
+      '',
+      '## 最近错误日志'
+    ].join('\n');
+    for (var e2 = 0; e2 < Math.min(recentErrors.length, 5); e2++) {
+      prompt += '\n- ' + recentErrors[e2];
+    }
+    prompt += '\n\n请根据错误信息调整方法，尝试完成任务。';
+  } else {
+    prompt = [
+      '[系统指令 — 工具重试]',
+      '',
+      '请回顾你最近的工具调用。如果有失败的调用，请：',
+      '1. 分析失败原因',
+      '2. 调整参数后重新调用',
+      '3. 如果找不到合适的替代方案，告知用户',
+      '',
+      '如果最近没有工具调用，请告诉我你需要什么帮助。'
+    ].join('\n');
+  }
+
+  var input = findChatInput();
+  if (input) {
+    setInputValue(input, prompt);
+    await sleep(500);
+    clickSendButton();
+    logPanel('success', '工具重试提示已发送 (' + (hasRecentFailure ? lastToolName + ' ' + failureCount + '次失败' : '通用重试') + ')');
+  } else {
+    logPanel('error', '找不到 DeepSeek 输入框');
+  }
+}
 
 // 供旧代码调用的全局
 window.triggerQuickAction = triggerQuickAction;
@@ -468,10 +900,12 @@ window.loadQuickActions = loadQuickActions;
 window.saveQuickActions = saveQuickActions;
 window.checkServerHealth = checkServerHealth;
 window.testConnection = testConnection;
-window.updateWorkspacePath = updateWorkspacePath;
 window.openPermissions = openPermissions;
 window.restrictPermissions = restrictPermissions;
 window.getConfig = getConfig;
 window.syncFullState = syncFullState;
 window.getToolEndpoint = getToolEndpoint;
 window.exportLogsDownload = exportLogsDownload;
+window.retryToolPrompt = retryToolPrompt;
+window.smartAgentAction = smartAgentAction;
+window.injectToolPrompt = injectToolPrompt;

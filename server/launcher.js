@@ -9,10 +9,10 @@ const fs = require('fs');
 const readline = require('readline');
 
 const SERVER_SCRIPT = path.join(__dirname, 'tool-server.js');
-const HEALTH_CHECK_INTERVAL = 3000;  // 3秒健康检查
-const RESTART_DELAY = 1000;          // 重启前等待1秒
-const MAX_RESTART_ATTEMPTS = 3;       // 最大连续重启次数
-const COOLDOWN_PERIOD = 10000;        // 重启冷却期（10秒内不重复重启）
+const HEALTH_CHECK_INTERVAL = 3000;
+const RESTART_DELAY = 1000;
+const MAX_RESTART_ATTEMPTS = 3;
+const COOLDOWN_PERIOD = 10000;
 
 let serverProcess = null;
 let healthCheckTimer = null;
@@ -86,7 +86,9 @@ async function startServer() {
 
   log(`启动工具服务器: node "${path.basename(SERVER_SCRIPT)}"`, 'INFO');
 
-  serverProcess = spawn(process.execPath, [SERVER_SCRIPT], {
+  var spawnArgs = [SERVER_SCRIPT];
+
+  serverProcess = spawn(process.execPath, spawnArgs, {
     cwd: __dirname,
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: false,

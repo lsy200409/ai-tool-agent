@@ -239,6 +239,9 @@ function bindConnectionPage() {
 
   var testBtn = document.getElementById('pm-btn-test-conn');
   if (testBtn) testBtn.addEventListener('click', testConnection);
+
+  var startServerBtn = document.getElementById('pm-btn-start-server');
+  if (startServerBtn) startServerBtn.addEventListener('click', startServer);
 }
 
 function testConnection() {
@@ -253,7 +256,7 @@ function testConnection() {
   fetch(url + '/health', { signal: AbortSignal.timeout(3000) })
     .then(function(r) {
       if (r.ok) {
-        dot.className = 'pm-dot pm-dot-green';
+        dot.className = 'pm-dot pm-dot-online';
         status.textContent = '已连接';
         showToast('连接成功');
         saveConfig();
@@ -262,10 +265,136 @@ function testConnection() {
       }
     })
     .catch(function(e) {
-      dot.className = 'pm-dot pm-dot-red';
+      dot.className = 'pm-dot pm-dot-offline';
       status.textContent = '失败: ' + (e.message || '超时');
       showToast('连接失败');
     });
+}
+
+function startServer() {
+  var btn = document.getElementById('pm-btn-start-server');
+  var dot = document.getElementById('pm-conn-dot');
+  var status = document.getElementById('pm-conn-status');
+  if (!btn || !dot || !status) return;
+
+  var origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '检查中...';
+  dot.className = 'pm-dot pm-dot-grey';
+  status.textContent = '检查服务状态...';
+
+  var apiUrl = (document.getElementById('pm-api-url') || {}).value || 'http://localhost:3002';
+  var wsUrl = (document.getElementById('pm-ws-url') || {}).value || '';
+
+  function done() { btn.disabled = false; btn.textContent = origText; }
+
+  fetch(apiUrl.replace(/\/$/, '') + '/health', { method: 'GET', cache: 'no-store' })
+    .then(function(r) {
+      if (r.status === 200) {
+        dot.className = 'pm-dot pm-dot-online';
+        status.textContent = '服务已在运行';
+        showToast('服务已在运行 (' + apiUrl + ')');
+        done();
+        return;
+      }
+      tryLauncher();
+    })
+    .catch(function() {
+      tryLauncher();
+    });
+
+  function tryLauncher() {
+    btn.textContent = '通过 Launcher 启动...';
+    status.textContent = '尝试启动 Launcher...';
+
+    fetch('http://localhost:3003/api/launcher/restart', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        status.textContent = 'Launcher 已接收命令';
+        showToast('通过 Launcher API 启动成功');
+        dot.className = 'pm-dot pm-dot-grey';
+        setTimeout(function() { testConnection(); }, 4000);
+        done();
+      })
+      .catch(function() {
+        tryBackground();
+      });
+  }
+
+  function tryBackground() {
+    btn.textContent = '通过扩展启动...';
+    status.textContent = '尝试通过扩展后台启动...';
+
+    chrome.runtime.sendMessage({ action: 'restartServer' }, function(resp) {
+      setTimeout(function() {
+        if (resp && resp.success) {
+          var methodMap = { launcher_api: 'Launcher API', native_port: 'Native Port', native_connect: 'Native Host' };
+          var methodLabel = methodMap[resp.method] || resp.method || '未知方式';
+          status.textContent = methodLabel + ' 启动中...';
+          showToast('通过 ' + methodLabel + ' 发送启动命令');
+          setTimeout(function() { testConnection(); }, 4000);
+        } else if (resp && resp.error) {
+          var errMsg = resp.error;
+          dot.className = 'pm-dot pm-dot-offline';
+          var cmd = resp.manualCommand || ('cd /d "F:\\桌面\\web_free_agent\\deepseek-tool-agent" && node server\\launcher.js');
+          status.textContent = '自动启动失败，请手动启动';
+          showManualStartHelp(cmd, errMsg);
+        } else {
+          status.textContent = '自动启动失败';
+          var defaultCmd = 'cd /d "F:\\桌面\\web_free_agent\\deepseek-tool-agent" && node server\\launcher.js';
+          showManualStartHelp(defaultCmd, '未收到响应');
+        }
+        done();
+      }, 1500);
+    });
+  }
+}
+
+function showManualStartHelp(command, error) {
+  var section = document.getElementById('pm-page-connection');
+  if (!section) return;
+
+  var existing = document.getElementById('pm-manual-start-help');
+  if (existing) existing.remove();
+
+  var helpDiv = document.createElement('div');
+  helpDiv.id = 'pm-manual-start-help';
+  helpDiv.style.cssText = 'margin-top:12px;padding:12px;border:1px solid var(--cr-outline);border-radius:var(--cr-radius-md);background:var(--cr-surface-1)';
+  helpDiv.innerHTML =
+    '<div style="font-size:var(--cr-fs-xs);font-weight:600;color:var(--cr-error);margin-bottom:6px">' +
+    '&#9888; 自动启动失败 (' + (error || 'Unknown') + ')' +
+    '</div>' +
+    '<div style="font-size:10px;color:var(--cr-on-surface-subtle);margin-bottom:8px;line-height:1.5">' +
+    '请在终端 (CMD/PowerShell) 中运行以下命令启动服务：' +
+    '</div>' +
+    '<div style="display:flex;gap:6px;align-items:center">' +
+    '<input type="text" id="pm-manual-cmd" value="' + command.replace(/"/g, '&quot;') + '" readonly style="flex:1;font-size:11px;font-family:Consolas,monospace;padding:6px 8px;border:1px solid var(--cr-outline);border-radius:var(--cr-radius-sm);background:#fff;color:var(--cr-on-surface)" />' +
+    '<button class="pm-btn pm-btn-sm" id="pm-btn-copy-cmd" style="flex-shrink:0">&#128203; 复制</button>' +
+    '</div>';
+
+  section.appendChild(helpDiv);
+
+  document.getElementById('pm-btn-copy-cmd').addEventListener('click', function() {
+    var cmdInput = document.getElementById('pm-manual-cmd');
+    if (cmdInput) {
+      cmdInput.select();
+      document.execCommand('copy');
+      this.textContent = '&#10003; 已复制!';
+      this.style.background = 'var(--google-green)';
+      this.style.color = '#fff';
+      this.style.borderColor = 'var(--google-green)';
+      var self = this;
+      setTimeout(function() {
+        self.textContent = '&#128203; 复制';
+        self.style.background = '';
+        self.style.color = '';
+        self.style.borderColor = '';
+      }, 2000);
+    }
+  });
+
+  var cmdInput = document.getElementById('pm-manual-cmd');
+  if (cmdInput) cmdInput.addEventListener('focus', function() { this.select(); });
 }
 
 // ============================================================

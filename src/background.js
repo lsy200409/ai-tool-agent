@@ -1,15 +1,21 @@
 console.log('[Background] Service Worker 启动中...');
 
-const SERVER_URL = 'http://localhost:3002';
+var SERVER_URL = 'http://localhost:3002';
+chrome.storage.local.get(['dsConfig'], function(result) {
+  if (result.dsConfig && result.dsConfig.serverUrl) {
+    SERVER_URL = result.dsConfig.serverUrl;
+    console.log('[Background] 使用配置的服务器地址: ' + SERVER_URL);
+  }
+});
 const NATIVE_HOST_NAME = 'com.deepseek.tool_agent';
 const TARGET_API = 'https://chat.deepseek.com/api/v0/chat/completion';
 
 let nativePort = null;
 let serverStatus = { running: false, mode: 'disconnected' };
 let reconnectAttempts = 0;
-var MAX_RECONNECT_ATTEMPTS = 5;
+var MAX_RECONNECT_ATTEMPTS = 3;
 var lastConnectAttempt = 0;
-var CONNECT_COOLDOWN_MS = 15000;
+var CONNECT_COOLDOWN_MS = 5000;
 
 const TOOL_DEFINITIONS = [
   { name: "read_file", description: "读取本地文件的内容", parameters: { path: "文件的绝对路径 (string)" } },
@@ -147,13 +153,29 @@ function doConnectNativeHost() {
       bgLog('Native Host 消息: ' + JSON.stringify(message).substring(0, 200));
 
       switch (message.type) {
+        case 'connect_ack':
+          bgLog('Native Host 已响应 (alive), PID=' + message.pid + ', Node=' + message.node + ', 等待 launcher 就绪...');
+          serverStatus = { running: false, mode: 'native_starting', pid: message.pid };
+          notifyStatus();
+          break;
         case 'started':
-          serverStatus = { running: true, mode: 'native', port: message.port, workspace: message.workspace };
-          bgLog('✅ 服务器已启动 (端口: ' + message.port + ')');
+          serverStatus = {
+            running: true,
+            mode: message.mode || 'native',
+            port: message.port,
+            workspace: message.workspace,
+            launcherPid: message.launcherPid
+          };
+          bgLog('✅ 服务器已启动 (端口: ' + message.port + ', 模式: ' + (message.mode || 'native') + ')');
           notifyStatus();
           break;
         case 'pong':
           serverStatus.running = message.running;
+          notifyStatus();
+          break;
+        case 'restarted':
+          serverStatus = { running: message.success, mode: 'launcher_proxy' };
+          bgLog('服务器重启结果: ' + (message.success ? '成功' : '失败'));
           notifyStatus();
           break;
         case 'error':
@@ -181,7 +203,7 @@ function doConnectNativeHost() {
         serverStatus = { running: false, mode: 'disconnected' };
         notifyStatus();
 
-        var delay = Math.min(5000 * (reconnectAttempts + 1), 30000);
+        var delay = Math.min(3000 * (reconnectAttempts + 1), 15000);
         reconnectAttempts++;
         if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
           bgLog(reconnectAttempts + '/' + MAX_RECONNECT_ATTEMPTS + ' 次重连，' + delay + 'ms 后尝试...');
@@ -202,7 +224,7 @@ function doConnectNativeHost() {
 
     reconnectAttempts++;
     if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
-      var delay = Math.min(5000 * reconnectAttempts, 30000);
+      var delay = Math.min(3000 * reconnectAttempts, 15000);
       bgLog(reconnectAttempts + '/' + MAX_RECONNECT_ATTEMPTS + ' 次重连，' + delay + 'ms 后尝试...');
       setTimeout(function() {
         if (!nativePort) connectNativeHost();
@@ -316,7 +338,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       break;
 
     case 'log':
-      fetch('http://127.0.0.1:3002/api/log', {
+      fetch(SERVER_URL + '/api/log', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ level: request.level || 'INFO', message: request.message || '', data: { timestamp: request.timestamp } })
@@ -330,7 +352,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       lastConnectAttempt = 0;
       bgLog('收到 connectNativeHost 请求');
 
-      // 先检查 HTTP 是否已在运行
       checkHttpServer().then(function(httpOk) {
         if (httpOk) {
           bgLog('HTTP 已在运行，直接返回成功');
@@ -340,33 +361,192 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           return;
         }
 
-        // HTTP 未运行，尝试 Native Host
         connectNativeHost();
 
-        setTimeout(function checkAndRespond() {
-          var elapsed = Date.now() - connStartTime;
-          bgLog('响应检查 (' + elapsed + 'ms): port=' + !!nativePort + ' running=' + serverStatus.running + ' mode=' + (serverStatus.mode || ''));
+        var maxWait = 35000;
+        var pollInterval = 2000;
+        var firstCheckDelay = 3000;
+        var wasAcked = false;
 
-          if (serverStatus.running || elapsed > 8000) {
-            bgLog('发送响应: success=' + !!nativePort + ' status=' + JSON.stringify(serverStatus).substring(0, 200));
-            sendResponse({ success: !!nativePort || serverStatus.running, status: serverStatus });
-            notifyStatus();
-          } else {
+        function checkAndRespond() {
+          var elapsed = Date.now() - connStartTime;
+
+          if (!wasAcked && serverStatus.mode === 'native_starting') {
+            wasAcked = true;
+            bgLog('Native Host 已确认连接，等待服务器启动... (elapsed=' + elapsed + 'ms)');
             setTimeout(checkAndRespond, 1500);
+            return;
           }
-        }, 4000);
+
+          if (serverStatus.running) {
+            bgLog('服务器就绪！elapsed=' + elapsed + 'ms');
+            sendResponse({ success: true, status: serverStatus });
+            notifyStatus();
+            return;
+          }
+
+          if (elapsed > maxWait) {
+            bgLog('连接超时 (' + elapsed + 'ms)，返回当前状态');
+            var resultSuccess = !!nativePort || serverStatus.running;
+            sendResponse({
+              success: resultSuccess,
+              status: serverStatus,
+              message: resultSuccess ? '正在启动中...' : '无法连接 Native Host，请手动启动服务'
+            });
+            notifyStatus();
+            return;
+          }
+
+          bgLog('仍在等待... elapsed=' + elapsed + 'ms, port=' + !!nativePort + ', running=' + serverStatus.running + ', mode=' + (serverStatus.mode || ''));
+          setTimeout(checkAndRespond, pollInterval);
+        }
+
+        setTimeout(checkAndRespond, firstCheckDelay);
       }).catch(function() {
         connectNativeHost();
-        setTimeout(function checkAndRespond() {
+        var maxWait = 35000;
+        function checkAndRespond() {
           var elapsed = Date.now() - connStartTime;
-          if (serverStatus.running || elapsed > 8000) {
+          if (serverStatus.running || elapsed > maxWait) {
             sendResponse({ success: !!nativePort || serverStatus.running, status: serverStatus });
             notifyStatus();
           } else {
-            setTimeout(checkAndRespond, 1500);
+            setTimeout(checkAndRespond, 2000);
           }
-        }, 4000);
+        }
+        setTimeout(checkAndRespond, 3000);
       });
+      return true;
+
+    case 'restartServer':
+      bgLog('收到 restartServer 请求');
+      (function() {
+        var resultSent = false;
+        function sendResult(resp) {
+          if (!resultSent) { resultSent = true; sendResponse(resp); }
+        }
+
+        function tryLauncherAPI() {
+          return new Promise(function(resolve) {
+            fetch('http://localhost:3003/api/launcher/restart', { method: 'POST' })
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                bgLog('restartServer: Launcher API 成功');
+                serverStatus = { running: true, mode: 'launcher' };
+                notifyStatus();
+                sendResult({ success: true, method: 'launcher_api', data: data });
+                resolve(true);
+              })
+              .catch(function(e) {
+                bgLog('restartServer: Launcher API 失败 - ' + (e.message || e));
+                resolve(false);
+              });
+          });
+        }
+
+        function tryNativePort(port) {
+          return new Promise(function(resolve) {
+            if (!port) { resolve(false); return; }
+            try {
+              port.postMessage({ type: 'restart' });
+              var timeout = setTimeout(function() {
+                bgLog('restartServer: nativePort restart 超时');
+                serverStatus = { running: false, mode: 'restarting' };
+                notifyStatus();
+                sendResult({ success: true, method: 'native_port', status: 'timeout_waiting' });
+                resolve(true);
+              }, 5000);
+              var origListener = null;
+              origListener = port.onMessage.addListener(function(msg) {
+                if (msg.type === 'started' || msg.type === 'restarted') {
+                  clearTimeout(timeout);
+                  try { port.onMessage.removeListener(origListener); } catch(ex) {}
+                  serverStatus = { running: !!msg.success, mode: msg.mode || 'native' };
+                  notifyStatus();
+                  sendResult({ success: true, method: 'native_port', data: msg });
+                  resolve(true);
+                }
+              });
+              resolve(true);
+            } catch(e) {
+              bgLog('restartServer: nativePort postMessage 失败 - ' + e.message);
+              resolve(false);
+            }
+          });
+        }
+
+        function tryConnectAndRestart() {
+          return new Promise(function(resolve) {
+            try {
+              var tempPort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+              tempPort.postMessage({ type: 'restart' });
+              var responded = false;
+              var msgHandler = function(msg) {
+                responded = true;
+                bgLog('restartServer: 临时端口收到消息 - ' + JSON.stringify(msg).substring(0, 200));
+                if (msg.type === 'started' || msg.type === 'restarted') {
+                  serverStatus = { running: !!msg.success, mode: msg.mode || 'native' };
+                  notifyStatus();
+                } else if (msg.type === 'error') {
+                  serverStatus = { running: false, mode: 'error', error: msg.message };
+                  notifyStatus();
+                }
+                sendResult({
+                  success: msg.type !== 'error',
+                  method: 'native_connect',
+                  data: msg,
+                  status: responded ? 'received' : 'disconnected'
+                });
+              };
+              tempPort.onMessage.addListener(msgHandler);
+              tempPort.onDisconnect.addListener(function() {
+                var err = chrome.runtime.lastError ? chrome.runtime.lastError.message : '';
+                bgLog('restartServer: 临时端口断开 - ' + err + ' responded=' + responded);
+                if (!responded) {
+                  sendResult({
+                    success: false,
+                    method: 'native_connect',
+                    error: err || 'Native Host 通信错误',
+                    status: 'native_not_available',
+                    manualCommand: 'cd /d "F:\\桌面\\web_free_agent\\deepseek-tool-agent" && node server\\launcher.js'
+                  });
+                }
+                try { tempPort.disconnect(); } catch(ex) {}
+              });
+              setTimeout(function() {
+                if (!responded) {
+                  responded = true;
+                  sendResult({ success: true, method: 'native_connect', status: 'waiting_for_response' });
+                }
+                try { tempPort.disconnect(); } catch(ex) {}
+              }, 35000);
+              resolve(true);
+            } catch(e) {
+              bgLog('restartServer: connectNative 异常 - ' + e.message);
+              sendResult({
+                success: false,
+                method: 'none',
+                error: e.message || 'Unknown error',
+                status: 'all_methods_failed',
+                manualCommand: 'cd /d "F:\\桌面\\web_free_agent\\deepseek-tool-agent" && node server\\tool-server.js'
+              });
+              resolve(true);
+            }
+          });
+        }
+
+        tryLauncherAPI().then(function(ok) {
+          if (ok) return;
+          if (nativePort) {
+            tryNativePort(nativePort).then(function(ok2) {
+              if (ok2) return;
+              tryConnectAndRestart();
+            });
+          } else {
+            tryConnectAndRestart();
+          }
+        });
+      })();
       return true;
   }
   return true;

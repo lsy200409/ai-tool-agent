@@ -24,49 +24,38 @@ function setInputValue(element, value) {
   try { element.value = ''; } catch(e) {}
   try { document.execCommand('selectAll'); } catch(e) {}
   try { document.execCommand('delete'); } catch(e) {}
-
-  var setSuccess = false;
-
   try {
-    var setter = Object.getOwnPropertyDescriptor(
-      Object.getPrototypeOf(element) || window.HTMLTextAreaElement.prototype,
-      'value'
-    );
-    if (setter && typeof setter.set === 'function') {
-      setter.call(element, value);
-      setSuccess = true;
-    }
-  } catch(e) {}
-
-  if (!setSuccess) {
-    try {
-      element.value = value;
-      setSuccess = true;
-    } catch(e) {}
-  }
-
-  if (!setSuccess) {
-    try {
-      document.execCommand('insertText', false, value);
-      setSuccess = true;
-    } catch(e) {}
-  }
-
+    var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+    if (setter && setter.set) setter.set.call(element, value);
+    else element.value = value;
+  } catch(e) { element.value = value; }
   element.dispatchEvent(new Event('input', { bubbles: true }));
   element.dispatchEvent(new Event('change', { bubbles: true }));
-
-  var nativeSet = new InputEvent('input', {
-    bubbles: true, cancelable: true, composed: true,
-    data: value, inputType: 'insertText'
-  });
-  element.dispatchEvent(nativeSet);
 }
 
 function findSendButton() {
   var all = document.querySelectorAll('[role="button"],button');
   for (var i = 0; i < all.length; i++) {
     var b = all[i];
-    if ((b.innerHTML || '').toLowerCase().indexOf(ARROW_SVG_PATH) >= 0) return b;
+    var html = (b.innerHTML || '').toLowerCase();
+    if (html.indexOf(ARROW_SVG_PATH) >= 0) { b.setAttribute('data-ds-send-btn', 'arrow'); return b; }
+    if (html.indexOf('<rect') >= 0) { b.setAttribute('data-ds-send-btn', 'stop'); return b; }
+  }
+  var input = findChatInput();
+  if (input) {
+    var walk = input;
+    for (var k = 0; k < 5; k++) {
+      walk = walk.parentElement;
+      if (!walk) break;
+      var btns = walk.querySelectorAll('button, [role="button"]');
+      for (var j = 0; j < btns.length; j++) {
+        var b2 = btns[j];
+        if (b2.clientHeight > 0 && b2.offsetParent !== null) {
+          b2.setAttribute('data-ds-send-btn', 'fallback');
+          return b2;
+        }
+      }
+    }
   }
   return null;
 }

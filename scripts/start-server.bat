@@ -22,7 +22,7 @@ if "%choice%" neq "2" goto launcher
 echo.
 echo 正在启动智能启动器...
 echo.
-node "%~dp0launcher.js"
+node "%~dp0..\server\launcher.js"
 pause
 goto end
 
@@ -30,7 +30,7 @@ goto end
 echo.
 echo 正在启动服务器...
 echo.
-node "%~dp0tool-server.js"
+node "%~dp0..\server\tool-server.js"
 pause
 
 :end

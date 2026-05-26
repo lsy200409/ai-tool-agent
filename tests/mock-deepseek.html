@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepSeek - 集成测试</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f5f5f5; color: #202124; min-height: 100vh;
+  }
+  #chat-container {
+    max-width: 900px; margin: 40px auto; background: #fff;
+    border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.1);
+    min-height: 600px; display: flex; flex-direction: column;
+  }
+  #chat-header {
+    padding: 16px 24px; border-bottom: 1px solid #e0e0e0;
+    font-size: 16px; font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+  }
+  #chat-header .ds-logo { color: #1a73e8; }
+  .ds-markdown {
+    flex: 1; padding: 24px; overflow-y: auto; min-height: 400px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .ds-message {
+    padding: 14px 20px; border-radius: 10px;
+    max-width: 90%; line-height: 1.7; font-size: 14px;
+    position: relative;
+  }
+  .ds-message.user { background: #e8f0fe; align-self: flex-end; color: #1a73e8; }
+  .ds-message.assistant { background: #f8f9fa; align-self: flex-start; color: #202124; }
+  .ds-assistant-message-main-content { white-space: pre-wrap; word-break: break-word; }
+  .ds-think-content {
+    background: #fff8e1; border-left: 3px solid #ffa000; padding: 10px 14px;
+    margin-bottom: 12px; font-size: 13px; color: #795548; border-radius: 0 6px 6px 0;
+  }
+  .ds-think-content::before { content: '💭 思考过程'; display: block; font-weight: 600; margin-bottom: 6px; font-size: 12px; color: #ff8f00; }
+  #chat-input-area {
+    padding: 16px 24px; border-top: 1px solid #e0e0e0;
+    display: flex; gap: 12px; align-items: center;
+  }
+  #chat-input {
+    flex: 1; padding: 12px 16px; border: 1px solid #dadce0;
+    border-radius: 10px; font-size: 14px; outline: none;
+    font-family: inherit; min-height: 44px; resize: none;
+  }
+  #chat-input:focus { border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26,115,232,.2); }
+  #send-btn {
+    width: 44px; height: 44px; padding: 0; background: #1a73e8; color: #fff;
+    border: none; border-radius: 50%; cursor: pointer; display: flex;
+    align-items: center; justify-content: center; flex-shrink: 0;
+    transition: background .2s, transform .2s;
+  }
+  #send-btn:hover { background: #1557b0; }
+  #send-btn:disabled { background: #ccc; cursor: not-allowed; }
+  #send-btn svg { width: 20px; height: 20px; fill: currentColor; }
+  #send-btn.streaming { background: #e53935; }
+  #send-btn.streaming svg { width: 16px; height: 16px; }
+  .status-bar {
+    padding: 8px 24px; font-size: 11px; color: #5f6368;
+    border-top: 1px solid #e0e0e0; display: flex; justify-content: space-between;
+  }
+  .status-bar .ds-status { display: flex; gap: 8px; align-items: center; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #ccc; }
+  .status-dot.active { background: #4caf50; }
+  .status-dot.streaming { background: #ff9800; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+</style>
+</head>
+<body>
+<div id="chat-container">
+  <div id="chat-header"><span class="ds-logo">[DS]</span> DeepSeek Chat — 集成测试环境</div>
+  <div class="ds-markdown" id="chat-messages">
+    <div class="ds-message assistant" id="msg-welcome">
+      <div class="ds-assistant-message-main-content">你好！我是 DeepSeek AI 助手，请告诉我你需要什么帮助。</div>
+    </div>
+  </div>
+  <div id="chat-input-area">
+    <textarea id="chat-input" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+    <button id="send-btn" role="button">
+      <svg viewBox="0 0 24 24"><path d="m8.3125 4.1875-7 7 7 7"/></svg>
+    </button>
+  </div>
+  <div class="status-bar">
+    <span>DS-Agent v2.6 — 集成测试模式 (tool-server 已连接)</span>
+    <div class="ds-status"><span class="status-dot active" id="ds-status-dot"></span><span id="ds-status-text">就绪</span></div>
+  </div>
+</div>
+
+<script>
+  window.__ds_test_mode = true;
+
+  if (!window.chrome) window.chrome = {};
+  if (!chrome.runtime) {
+    chrome.runtime = {
+      id: 'mock-deepseek-env-id',
+      sendMessage: function() {},
+      getURL: function(p) { return p; },
+      onMessage: { addListener: function() {} }
+    };
+  }
+
+  var sendBtn = document.getElementById('send-btn');
+  var chatInput = document.getElementById('chat-input');
+  var statusDot = document.getElementById('ds-status-dot');
+  var statusText = document.getElementById('ds-status-text');
+  var chatMessages = document.getElementById('chat-messages');
+
+  window.__ds_setStreaming = function(isStreaming) {
+    if (isStreaming) {
+      sendBtn.classList.add('streaming');
+      chatInput.disabled = true;
+      statusDot.className = 'status-dot streaming';
+      statusText.textContent = 'AI 正在生成...';
+    } else {
+      sendBtn.classList.remove('streaming');
+      chatInput.disabled = false;
+      statusDot.className = 'status-dot active';
+      statusText.textContent = '就绪';
+    }
+  };
+
+  window.__ds_addAssistantMessage = function(text) {
+    var div = document.createElement('div');
+    div.className = 'ds-message assistant';
+    var content = document.createElement('div');
+    content.className = 'ds-assistant-message-main-content';
+    content.textContent = text;
+    div.appendChild(content);
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return content;
+  };
+
+  window.__ds_addThinkBlock = function(text, parentMsg) {
+    var think = document.createElement('div');
+    think.className = 'ds-think-content';
+    think.textContent = text;
+    if (parentMsg) {
+      parentMsg.insertBefore(think, parentMsg.firstChild);
+    } else {
+      var msg = document.createElement('div');
+      msg.className = 'ds-message assistant';
+      msg.appendChild(think);
+      var content = document.createElement('div');
+      content.className = 'ds-assistant-message-main-content';
+      content.textContent = text;
+      msg.appendChild(content);
+      chatMessages.appendChild(msg);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+    return think;
+  };
+
+  window.__ds_clearMessages = function() {
+    var msgs = chatMessages.querySelectorAll('.ds-message.assistant');
+    for (var i = 1; i < msgs.length; i++) msgs[i].remove();
+  };
+
+  window.__ds_getLatestAssistantContent = function() {
+    var els = chatMessages.querySelectorAll('.ds-assistant-message-main-content');
+    return els.length > 0 ? els[els.length - 1] : null;
+  };
+
+  window.__ds_setAssistantContent = function(contentEl, text) {
+    contentEl.textContent = text;
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  };
+
+  window.__ds_appendToAssistantContent = function(contentEl, chunk) {
+    contentEl.textContent += chunk;
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  };
+
+  sendBtn.addEventListener('click', function() {
+    if (chatInput.value.trim()) {
+      var userDiv = document.createElement('div');
+      userDiv.className = 'ds-message user';
+      userDiv.textContent = chatInput.value;
+      chatMessages.appendChild(userDiv);
+      chatInput.value = '';
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+  });
+
+  chatInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendBtn.click();
+    }
+  });
+
+  console.log('[Mock DeepSeek] 集成测试页面就绪，DOM 结构与真实 DeepSeek 高度一致');
+</script>
+</body>
+</html>

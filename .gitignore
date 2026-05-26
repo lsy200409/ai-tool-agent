@@ -50,3 +50,7 @@ workspace/bug_analysis.md
 用户消息检测修复-测试清单.md
 后端测试清单.md
 前后端联调对照表
+
+# Playwright
+.browser-data*/
+test-results/

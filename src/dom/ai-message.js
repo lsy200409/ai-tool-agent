@@ -20,17 +20,37 @@ function wasSendButtonJustReturnedToArrow() {
 }
 
 function getLatestAIMessageText() {
-  // DeepSeek 真实 DOM: AI回复主内容在 div.ds-assistant-message-main-content 中
-  // 思考过程在普通 div.ds-markdown 中，我们取最后一个有 main-content 的
   var els = document.querySelectorAll('div.ds-assistant-message-main-content');
-  var best = '';
+  var candidates = [];
+
   for (var i = 0; i < els.length; i++) {
     var el = els[i];
     if (el.closest('.ds-think-content')) continue;
     var txt = (el.innerText || el.textContent || '').trim();
     if (txt.indexOf('## 环境') >= 0 || txt.indexOf('## 可用工具') >= 0) continue;
-    if (txt.length > 0) best = txt;
+    if (txt.length > 0) candidates.push({ txt: txt, idx: i });
   }
+
+  if (candidates.length === 0) return '';
+
+  if (candidates.length === 1) return candidates[0].txt;
+
+  var best = candidates[candidates.length - 1].txt;
+
+  if (best.indexOf('<tool_call') >= 0 || best.indexOf('<tool_response') >= 0) {
+    return best;
+  }
+
+  for (var j = candidates.length - 2; j >= 0; j--) {
+    var prev = candidates[j].txt;
+    if (prev.indexOf('<tool_call') >= 0 || prev.indexOf('<tool_response') >= 0) {
+      if (best.indexOf(prev) >= 0) {
+        return prev;
+      }
+      return best;
+    }
+  }
+
   return best;
 }
 
