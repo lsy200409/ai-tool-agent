@@ -22,6 +22,12 @@
   "content_scripts": [
     {
       "matches": ["https://chat.deepseek.com/*"],
+      "js": ["src/sse-interceptor.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://chat.deepseek.com/*"],
       "js": [
         "src/core/state.js",
         "src/core/config.js",

@@ -34,6 +34,16 @@ function setInputValue(element, value) {
 }
 
 function findSendButton() {
+  // 优先查找 DeepSeek 的 primary 发送按钮
+  var primaryBtns = document.querySelectorAll('div[role="button"].ds-button--primary, div[role="button"][class*="ds-button--primary"]');
+  for (var p = 0; p < primaryBtns.length; p++) {
+    var pb = primaryBtns[p];
+    if (pb.clientHeight > 0 && pb.offsetParent !== null) {
+      pb.setAttribute('data-ds-send-btn', 'primary');
+      return pb;
+    }
+  }
+
   var all = document.querySelectorAll('[role="button"],button');
   for (var i = 0; i < all.length; i++) {
     var b = all[i];

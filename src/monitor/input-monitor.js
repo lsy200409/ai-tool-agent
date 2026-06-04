@@ -180,7 +180,14 @@ MONITOR.injector = {
   injectResults: function(results) {
     return new Promise(function(resolve) {
       var input = typeof findChatInput === 'function' ? findChatInput() : null;
-      if (!input) { resolve(false); return; }
+      if (!input) {
+        console.error('[Monitor] injectResults: findChatInput() 返回 null，无法注入工具结果');
+        if (typeof logPanel === 'function') {
+          logPanel('error', '❌ 注入失败: 找不到输入框 (findChatInput=null)');
+        }
+        resolve(false);
+        return;
+      }
 
       if (typeof logPanel === 'function') {
         var summary = results.map(function(r) {
@@ -228,15 +235,29 @@ MONITOR.injector = {
         }
       }
 
+      if (typeof logPanel === 'function') {
+        logPanel('info', '📝 注入内容预览 (' + responseText.length + '字): ' + responseText.substring(0, 200).replace(/\n/g, ' '));
+      }
+
       try {
         if (typeof setInputValue === 'function') setInputValue(input, responseText);
         else input.value = responseText;
+        console.log('[Monitor] injectResults: 已设置输入框值 (' + responseText.length + '字)');
+
         setTimeout(function() {
-          if (typeof clickSendButton === 'function') clickSendButton();
-          else input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+          var sendOk = typeof clickSendButton === 'function' ? clickSendButton() : false;
+          if (!sendOk) {
+            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+          }
+          console.log('[Monitor] injectResults: 发送按钮已点击 (clickSendButton=' + sendOk + ')');
+          if (typeof logPanel === 'function') {
+            logPanel('info', '📤 工具结果已发送 (clickSendButton=' + sendOk + ', 文本' + responseText.length + '字)');
+          }
           resolve(true);
         }, 300);
       } catch(e) {
+        console.error('[Monitor] injectResults 异常: ' + e.message);
+        if (typeof logPanel === 'function') logPanel('error', '注入结果异常: ' + e.message);
         resolve(false);
       }
     }, 300);
@@ -314,10 +335,17 @@ MONITOR.coordinator = {
     for (var i = 0; i < toolCalls.length; i++) {
       var call = toolCalls[i];
       var mode = MONITOR.coordinator.getToolMode(call.name);
+      if (typeof logPanel === 'function') {
+        logPanel('info', '⚡ 执行 [' + (i+1) + '/' + total + '] ' + call.name + ' ' + JSON.stringify(call.arguments || {}).substring(0, 80));
+      }
       MONITOR.ui.updateToolChainProgress(i + 1, total, call.name, 'exec');
       var result = await MONITOR.coordinator.executeToolCall(call, mode);
       results.push(result);
       var statusIcon = result.success ? '✓' : (result.blocked ? '⊘' : '✗');
+      if (typeof logPanel === 'function') {
+        logPanel(result.success ? 'success' : 'error',
+          statusIcon + ' ' + call.name + ': ' + (result.success ? '成功' : '失败 - ' + (result.error || '未知错误').substring(0, 80)));
+      }
       MONITOR.ui.updateToolChainProgress(i + 1, total, call.name, statusIcon);
 
       if (result.blocked || result.denied) {
@@ -396,6 +424,9 @@ MONITOR.observer = {
     MONITOR._toolChainIterations = 0;
     MONITOR._noToolCallWaitCount = 0;
 
+    _monitorStartMsgCount = countUserMessages();
+    _lastDetectedUserText = getLatestUserText();
+
     if (MONITOR.sse.enabled) {
       MONITOR.sse.streamEnded = false;
       MONITOR.sse.endText = '';
@@ -426,6 +457,7 @@ MONITOR.observer = {
     if (MONITOR.sse.enabled) {
       MONITOR.sse.streamEnded = false;
     }
+    _monitorStartMsgCount = countUserMessages();
     MONITOR.ui.updatePanelStatus('已停止' + (reason ? ' (' + reason + ')' : ''));
   },
 
@@ -433,6 +465,26 @@ MONITOR.observer = {
     if (MONITOR.state === 'idle') return;
 
     MONITOR._pollCount++;
+
+    // ─── SSE 缓存优先: 如果 SSE 已检测到工具调用，直接执行 ───
+    if (MONITOR._sseToolCalls && MONITOR._sseToolCalls.length > 0) {
+      var cachedCalls = MONITOR._sseToolCalls;
+      var cachedText = MONITOR._sseToolCallText;
+      MONITOR._sseToolCalls = null;
+      MONITOR._sseToolCallText = null;
+
+      if (MONITOR.pollTimer) { clearTimeout(MONITOR.pollTimer); MONITOR.pollTimer = null; }
+      MONITOR.state = 'ai_done';
+      MONITOR.currentRound.toolCalls = cachedCalls;
+      MONITOR.currentRound.aiMessageText = cachedText || '';
+      if (typeof logPanel === 'function') {
+        logPanel('info', '🔧 轮询发现SSE缓存工具调用，直接执行: ' +
+          cachedCalls.map(function(c) { return c.name; }).join(', '));
+      }
+      MONITOR.observer.handleToolCalls(cachedCalls);
+      return;
+    }
+
     var aiText = MONITOR.parser.getLatestAIText();
     var isTextNew = (aiText !== MONITOR.lastAiText);
 
@@ -446,25 +498,33 @@ MONITOR.observer = {
 
     // ─── 文本驱动状态机 ───
     if (isTextNew) {
-      MONITOR.lastAiText = aiText;
-      MONITOR._noToolCallWaitCount = 0;
-      if (aiText.length > 3) {
-        MONITOR.stableCount = 0;
+      // 如果 SSE 已检测到工具调用，不要让 DOM 文本差异重置 stableCount
+      if (MONITOR._sseToolCalls && MONITOR._sseToolCalls.length > 0) {
+        // SSE 已有工具调用结果，保持 stableCount 不变，等待触发
+        MONITOR.lastAiText = aiText; // 同步为 DOM 文本避免循环
+      } else {
+        MONITOR.lastAiText = aiText;
+        MONITOR._noToolCallWaitCount = 0;
+        if (aiText.length > 3) {
+          MONITOR.stableCount = 0;
 
-        if (!MONITOR.aiStarted) {
-          MONITOR.aiStarted = true;
-          MONITOR.state = 'ai_streaming';
-          MONITOR.ui.updatePanelStatus('AI生成中...');
-          var userMsg = typeof getLatestUserMessageText === 'function' ? getLatestUserMessageText() : '';
-          if (typeof logPanel === 'function' && userMsg.length > 0 && userMsg.indexOf('正在思考') !== 0) {
-            logPanel('info', '📤 用户消息(' + userMsg.length + '字): "' + userMsg.substring(0, 100) + '"');
-          } else if (typeof logPanel === 'function' && userMsg.length === 0) {
-            logPanel('info', '📤 用户消息(0字，可能是工具回填消息)');
+          if (!MONITOR.aiStarted) {
+            MONITOR.aiStarted = true;
+            MONITOR.state = 'ai_streaming';
+            MONITOR.ui.updatePanelStatus('AI生成中...');
+            var userMsg = typeof getLatestUserMessageText === 'function' ? getLatestUserMessageText() : '';
+            if (typeof logPanel === 'function' && userMsg.length > 0 && userMsg.indexOf('正在思考') !== 0) {
+              logPanel('info', '📤 用户消息(' + userMsg.length + '字): "' + userMsg.substring(0, 100) + '"');
+            } else if (typeof logPanel === 'function' && userMsg.length === 0) {
+              logPanel('info', '📤 用户消息(0字，可能是工具回填消息)');
+            }
           }
         }
       }
-    } else if (MONITOR.aiStarted && aiText.length > 3) {
+    } else if (MONITOR.aiStarted) {
       // 文本没变化，递增稳定计数
+      // 注意: DOM innerText 可能丢失 <tool_call 标签内容导致 aiText 很短，
+      // 但 SSE 已结束且 aiStarted=true 时仍应递增 stableCount
       MONITOR.stableCount++;
 
       if (MONITOR.stableCount >= MONITOR.config.stableThreshold) {
@@ -488,7 +548,13 @@ MONITOR.observer = {
           logPanel('info', '✅ AI回复稳定 (' + aiText.length + '字, ' + MONITOR.stableCount + '轮不变, 流式已结束)');
         }
 
-        var toolCalls = MONITOR.parser.parseToolCalls(aiText);
+        // 优先使用 SSE 原始文本解析工具调用（DOM innerText 会丢失 <tool_call 标签名）
+        var textForParsing = MONITOR._sseToolCallText || MONITOR.sse.endText || aiText;
+        var toolCalls = MONITOR.parser.parseToolCalls(textForParsing);
+
+        // 清理 SSE 缓存
+        MONITOR._sseToolCalls = null;
+        MONITOR._sseToolCallText = null;
 
         if (toolCalls.length > 0) {
           MONITOR._preToolAiText = aiText;
@@ -547,6 +613,10 @@ MONITOR.observer = {
   },
 
   handleToolCalls: async function(toolCalls) {
+    if (typeof logPanel === 'function') {
+      logPanel('info', '🔧 开始处理 ' + toolCalls.length + ' 个工具调用: ' +
+        toolCalls.map(function(c) { return c.name + '(' + JSON.stringify(c.arguments || {}).substring(0, 40) + ')'; }).join(', '));
+    }
     MONITOR.ui.notifyState('处理工具调用', { level: 'info', message: '开始处理 ' + toolCalls.length + ' 个工具调用' });
 
     try {
@@ -664,6 +734,49 @@ window.__ds_refreshToolModes = function() {
 };
 window.__ds_monitor = MONITOR;
 
+// Sync monitor state to MAIN world via postMessage (for Playwright/CDP access)
+function syncMonitorToMainWorld() {
+  window.postMessage({
+    type: '__ds_monitor_state_sync',
+    payload: {
+      state: MONITOR.state,
+      autoWatch: !!MONITOR.autoWatch,
+      toolCalls: MONITOR.currentRound ? (MONITOR.currentRound.toolCalls || []).length : 0,
+      toolNames: MONITOR.currentRound ? (MONITOR.currentRound.tools || []).slice(0, 10) : [],
+      execResults: MONITOR.currentRound ? (MONITOR.currentRound.executedResults || []).length : 0
+    }
+  }, '*');
+}
+setInterval(syncMonitorToMainWorld, 2000);
+syncMonitorToMainWorld();
+
+// Monitor 状态超时保护：如果卡在 ai_streaming/executing_tools 超过 180 秒，自动恢复
+var _monitorStateTimestamp = Date.now();
+var _lastMonitorState = MONITOR.state;
+setInterval(function() {
+  if (MONITOR.state !== _lastMonitorState) {
+    _lastMonitorState = MONITOR.state;
+    _monitorStateTimestamp = Date.now();
+  }
+
+  var stuckMs = Date.now() - _monitorStateTimestamp;
+  if ((MONITOR.state === 'ai_streaming' || MONITOR.state === 'executing_tools') && stuckMs > 180000) {
+    console.warn('[Monitor] 状态卡在 ' + MONITOR.state + ' 超过 ' + Math.round(stuckMs/1000) + 's，强制恢复');
+    if (typeof logPanel === 'function') {
+      logPanel('warn', '⚠️ Monitor 状态超时，自动恢复 (stuck in ' + MONITOR.state + ' for ' + Math.round(stuckMs/1000) + 's)');
+    }
+    if (MONITOR.pollTimer) { clearTimeout(MONITOR.pollTimer); MONITOR.pollTimer = null; }
+    if (MONITOR._resumeTimer) { clearTimeout(MONITOR._resumeTimer); MONITOR._resumeTimer = null; }
+    MONITOR.state = 'idle';
+    MONITOR.aiStarted = false;
+    MONITOR.stableCount = 0;
+    MONITOR._sseToolCalls = null;
+    MONITOR._sseToolCallText = null;
+    MONITOR.sse.active = false;
+    MONITOR.ui.updatePanelStatus('就绪（超时恢复）');
+  }
+}, 10000);
+
 window.addEventListener('message', function(event) {
   if (!event.data || typeof event.data !== 'object') return;
 
@@ -690,7 +803,15 @@ window.addEventListener('message', function(event) {
       toolChainIterations: MONITOR._toolChainIterations || 0,
       noToolCallWaitCount: MONITOR._noToolCallWaitCount || 0,
       currentRoundToolCalls: (MONITOR.currentRound && MONITOR.currentRound.toolCalls) ? MONITOR.currentRound.toolCalls.length : 0,
-      currentRoundExecResults: (MONITOR.currentRound && MONITOR.currentRound.executedResults) ? MONITOR.currentRound.executedResults.length : 0
+      currentRoundExecResults: (MONITOR.currentRound && MONITOR.currentRound.executedResults) ? MONITOR.currentRound.executedResults.length : 0,
+      sseEnabled: MONITOR.sse ? MONITOR.sse.enabled : false,
+      sseActive: MONITOR.sse ? MONITOR.sse.active : false,
+      sseEndTextLen: MONITOR.sse ? (MONITOR.sse.endText || '').length : 0,
+      sseEndTextPreview: MONITOR.sse ? (MONITOR.sse.endText || '').substring(0, 100) : '',
+      sseStreamEnded: MONITOR.sse ? MONITOR.sse.streamEnded : false,
+      _sseToolCalls: MONITOR._sseToolCalls ? MONITOR._sseToolCalls.length : 0,
+      pollTimer: !!MONITOR.pollTimer,
+      autoWatchRunning: typeof autoWatchRunning !== 'undefined' ? autoWatchRunning : 'UNDEFINED'
     }, '*');
   }
 
@@ -726,9 +847,22 @@ window.addEventListener('message', function(event) {
 
       if (typeof updateSSEIndicator === 'function') updateSSEIndicator(true);
 
-      if (MONITOR.state === 'idle' && typeof autoWatchRunning !== 'undefined' && autoWatchRunning) {
-        MONITOR.observer.start();
+      // 无论 autoWatchRunning 状态如何，都重置并启动 Monitor
+      // 防止长时间不使用后 autoWatchRunning 为 false 导致监控不启动
+      if (typeof autoWatchRunning !== 'undefined') {
+        autoWatchRunning = true;
       }
+
+      if (MONITOR.state !== 'idle') {
+        console.log('[Monitor] SSE 流到达时 MONITOR 非 idle(' + MONITOR.state + ')，强制停止旧监控并重启');
+        if (MONITOR.pollTimer) { clearTimeout(MONITOR.pollTimer); MONITOR.pollTimer = null; }
+        if (MONITOR._resumeTimer) { clearTimeout(MONITOR._resumeTimer); MONITOR._resumeTimer = null; }
+        MONITOR.state = 'idle';
+        MONITOR.aiStarted = false;
+        MONITOR.stableCount = 0;
+        _monitorStuckSince = 0;
+      }
+      MONITOR.observer.start();
       break;
 
     case '__ds_stream_chunk':
@@ -745,10 +879,37 @@ window.addEventListener('message', function(event) {
 
       if (typeof updateSSEIndicator === 'function') updateSSEIndicator(false);
 
-      if (MONITOR.state === 'ai_streaming') {
+      // SSE 原始文本包含 <tool_call 标签（DOM innerText 会丢失标签名）
+      // 无论 monitor 当前状态如何，只要 SSE 有文本就尝试解析工具调用
+      if (MONITOR.sse.endText) {
         MONITOR.lastAiText = MONITOR.sse.endText;
+        MONITOR.aiStarted = true;
         MONITOR.stableCount = MONITOR.config.stableThreshold;
+
+        // 立即从 SSE 原始文本解析工具调用
+        var sseToolCalls = MONITOR.parser.parseToolCalls(MONITOR.sse.endText);
+        if (sseToolCalls.length > 0) {
+          console.log('[Monitor] SSE原始文本检测到 ' + sseToolCalls.length + ' 个工具调用（绕过DOM丢失）');
+          MONITOR._sseToolCalls = sseToolCalls;
+          MONITOR._sseToolCallText = MONITOR.sse.endText;
+
+          // 不停止轮询！让轮询自己检测到 _sseToolCalls 并执行
+          // 强制推进状态，确保轮询能进入 stableCount 检查
+          if (MONITOR.state === 'listening' || MONITOR.state === 'idle') {
+            MONITOR.state = 'ai_streaming';
+          }
+
+          // 如果轮询没在运行，立即启动
+          if (!MONITOR.pollTimer && MONITOR.state !== 'idle') {
+            console.log('[Monitor] 轮询未运行，立即启动');
+            MONITOR.observer.poll();
+          }
+        }
       }
+      break;
+
+    case '__ds_heartbeat_injected_ack':
+      console.log('[Monitor] SSE 注入验证通过: alive=' + event.data.alive + ', fetchPatched=' + event.data.fetchPatched + ', streamActive=' + event.data.streamActive);
       break;
   }
 });
@@ -790,6 +951,9 @@ window.addEventListener('message', function(event) {
 (function() {
   var lastUserMsgCount = 0;
 
+  var _lastDetectedUserText = '';
+  var _monitorStartMsgCount = 0;
+
   function countUserMessages() {
     var all = document.querySelectorAll('div.ds-message');
     var count = 0;
@@ -805,21 +969,33 @@ window.addEventListener('message', function(event) {
     return count;
   }
 
-  function checkForNewUserMessage() {
-    var current = countUserMessages();
+  function getLatestUserText() {
+    try {
+      return typeof getLatestUserMessageText === 'function'
+        ? getLatestUserMessageText()
+        : '';
+    } catch(e) { return ''; }
+  }
 
+  function checkForNewUserMessage() {
     if (MONITOR.state !== 'idle') {
-      lastUserMsgCount = current;
       return;
     }
     if (typeof autoWatchRunning === 'undefined' || !autoWatchRunning) {
-      lastUserMsgCount = current;
       return;
     }
 
-    if (current > lastUserMsgCount) {
-      lastUserMsgCount = current;
-      console.log('[Monitor] 检测到用户新消息 (msg#' + current + ')，自动重启监控');
+    var currentCount = countUserMessages();
+    var currentText = getLatestUserText();
+
+    var countChanged = currentCount > _monitorStartMsgCount;
+    var textChanged = currentText && currentText !== _lastDetectedUserText;
+
+    if (countChanged || textChanged) {
+      _monitorStartMsgCount = currentCount;
+      _lastDetectedUserText = currentText;
+      lastUserMsgCount = currentCount;
+      console.log('[Monitor] 检测到用户新消息 (count=' + currentCount + ', text=' + (currentText ? currentText.substring(0, 30) : '(空)') + ') 自动重启监控');
       if (typeof logPanel === 'function') logPanel('info', '检测到用户新消息，自动启动监控');
       MONITOR.observer.start();
     }
@@ -827,31 +1003,107 @@ window.addEventListener('message', function(event) {
 
   setInterval(checkForNewUserMessage, 1000);
 
+  var _visibilityFired = 0;
+  var _monitorStuckSince = 0;
+  var MONITOR_STUCK_TIMEOUT = 5 * 60 * 1000;
+
+  function forceCheckVisibility() {
+    _visibilityFired++;
+    if (typeof logPanel === 'function' && _visibilityFired <= 3) {
+      logPanel('info', 'visibility触发检测 #' + _visibilityFired + ' state=' + MONITOR.state + ' autoWatch=' + autoWatchRunning);
+    }
+
+    if (MONITOR.state !== 'idle') {
+      if (!_monitorStuckSince) {
+        _monitorStuckSince = Date.now();
+      } else if (Date.now() - _monitorStuckSince > MONITOR_STUCK_TIMEOUT) {
+        console.log('[Monitor] MONITOR 卡在 ' + MONITOR.state + ' 超过 ' + (MONITOR_STUCK_TIMEOUT/60000) + ' 分钟，强制恢复为 idle');
+        if (typeof logPanel === 'function') logPanel('warn', 'MONITOR 状态卡死(' + MONITOR.state + ')，强制恢复');
+        MONITOR.state = 'idle';
+        if (MONITOR.pollTimer) { clearTimeout(MONITOR.pollTimer); MONITOR.pollTimer = null; }
+        if (MONITOR._resumeTimer) { clearTimeout(MONITOR._resumeTimer); MONITOR._resumeTimer = null; }
+        MONITOR.aiStarted = false;
+        MONITOR.stableCount = 0;
+        _monitorStuckSince = 0;
+      }
+    } else {
+      _monitorStuckSince = 0;
+    }
+
+    checkForNewUserMessage();
+  }
+
+  document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) {
+      forceCheckVisibility();
+    }
+  });
+
+  window.addEventListener('focus', function() {
+    forceCheckVisibility();
+  });
+
+  window.addEventListener('pageshow', function(e) {
+    if (!e.persisted) return;
+    forceCheckVisibility();
+  });
+
   // ============================================================
   // SW KeepAlive — 长连接端口防止 Service Worker 被闲置超时终止
   // Chrome MV3 默认 30 秒无消息即终止 SW，此端口保持连接活跃
   // ============================================================
   var _keepalivePort = null;
   var _keepaliveInterval = null;
+  var _keepaliveGeneration = 0;
 
   function establishKeepAlive() {
     try {
+      var gen = ++_keepaliveGeneration;
       if (_keepalivePort) {
         try { _keepalivePort.disconnect(); } catch(e) {}
       }
-      _keepalivePort = chrome.runtime.connect({ name: 'keepAlive' });
-      _keepalivePort.onDisconnect.addListener(function() {
-        console.log('[Monitor] KeepAlive 端口断开，3秒后重连');
-        _keepalivePort = null;
-        setTimeout(establishKeepAlive, 3000);
+      _keepalivePort = null;
+      var port = chrome.runtime.connect({ name: 'keepAlive' });
+      _keepalivePort = port;
+      port.onDisconnect.addListener(function() {
+        if (_keepalivePort === port) {
+          _keepalivePort = null;
+        }
+        if (gen === _keepaliveGeneration) {
+          console.log('[Monitor] KeepAlive 端口断开，3秒后重连（gen=' + gen + '）');
+          setTimeout(establishKeepAlive, 3000);
+        }
       });
-      _keepalivePort.onMessage.addListener(function(msg) {
+      port.onMessage.addListener(function() {
         // 心跳响应到达，SW 仍然存活
       });
+      console.log('[Monitor] KeepAlive 端口已建立（gen=' + gen + '）');
+
+      // SW 重连后验证 injected.js 是否存活
+      setTimeout(function() {
+        if (gen === _keepaliveGeneration && _keepalivePort === port) {
+          verifySSEInjection();
+        }
+      }, 5000);
     } catch(e) {
       console.warn('[Monitor] KeepAlive 连接失败: ' + e.message);
       _keepalivePort = null;
       setTimeout(establishKeepAlive, 5000);
+    }
+  }
+
+  function verifySSEInjection() {
+    if (typeof autoWatchRunning === 'undefined' || !autoWatchRunning) return;
+    // 验证 injected.js 在页面上下文中是否存活
+    try {
+      window.postMessage({ type: '__ds_heartbeat_injected', timestamp: Date.now() }, '*');
+      console.log('[Monitor] 已发送 SSE 注入验证心跳');
+    } catch(e) {
+      console.warn('[Monitor] SSE 注入验证失败: ' + e.message);
+    }
+    // 如果监控之前是收听状态但现在停止了，重新启动
+    if (MONITOR.state === 'idle' && typeof autoWatchRunning !== 'undefined' && autoWatchRunning) {
+      console.log('[Monitor] SW 重连后监控状态正常（idle），等待用户消息自动触发');
     }
   }
 
@@ -864,7 +1116,7 @@ window.addEventListener('message', function(event) {
       }
     } catch(e) {
       _keepalivePort = null;
-      setTimeout(establishKeepAlive, 3000);
+      establishKeepAlive();
     }
   }
 

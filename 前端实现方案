@@ -150,4 +150,3 @@
 - **后端交互**：`actions.js` 中的 `initAgent`, `loadTools`, `executeTool` 等直接 `fetch` 本地 `localhost:3002` 的 HTTP API，或由 background 代理转发。
 - **日志推送**：后端通过 WebSocket（可选）或 HTTP 响应返回日志，`background.js` 接收后通过 `chrome.tabs.sendMessage` 推送到 content script，再由 `panel.js` 渲染。
 
-按照上述设计，你可以直接为每个控件编写代码逻辑，无需额外构思。

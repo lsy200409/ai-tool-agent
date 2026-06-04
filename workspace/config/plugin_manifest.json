@@ -1,3 +1,3 @@
 {
-  "enabled_plugins": ["memory-plugin", "web-integration", "content-tools", "workflow-tools"]
+  "enabled_plugins": ["memory-plugin", "web-integration", "content-tools", "workflow-tools", "study-tools", "daily-utils"]
 }

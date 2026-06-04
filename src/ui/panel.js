@@ -17,6 +17,13 @@ var petOffsetY = 0;
 var petDragStartX = 0;
 var petDragStartY = 0;
 var panelVisible = false;
+var leftColumnTab = 'tools';
+var panelResizing = false;
+var panelResizeStartX = 0;
+var panelResizeStartY = 0;
+var panelResizeStartW = 0;
+var panelResizeStartH = 0;
+var expandedLogIndex = -1;
 
 // ============================================================
 // CSS — 已提取到 panel-css.js，此处仅调用
@@ -32,16 +39,22 @@ function injectPanelHTML() {
   // Pet ball
   var pet = document.createElement('div');
   pet.id = '__ds-pet-ball';
-  pet.textContent = '\uD83E\uDD16';
-  pet.title = 'DS-Agent v2.6';
+  pet.innerHTML = '<span id="__ds-pet-dot"></span>\uD83E\uDD16';
+  pet.title = 'DS-Agent v2.6  |  Click to toggle panel  |  Ctrl+Shift+D';
   pet.addEventListener('mousedown', startPetDrag);
   document.body.appendChild(pet);
 
-  // Main panel
+  // Main panel + resize handle
   var panel = document.createElement('div');
   panel.id = '__ds-agent-panel';
   panel.innerHTML = buildPanelHTML();
   document.body.appendChild(panel);
+
+  var resizeHandle = document.createElement('div');
+  resizeHandle.id = '__ds-resize-handle';
+  resizeHandle.title = 'Drag to resize';
+  resizeHandle.addEventListener('mousedown', startPanelResize);
+  document.getElementById('__ds-agent-panel').appendChild(resizeHandle);
 
   // Modal overlay (contains QA modal)
   var overlay = document.createElement('div');
@@ -74,18 +87,41 @@ function buildPanelHTML() {
     '</div>',
 
     '<div id="__ds-body">',
-    '  <!-- Left Column: Tools & Skills -->',
+    '  <!-- Left Column: Tabs (Tools & Skills | Workspace) -->',
     '  <div id="__ds-col-left">',
-    '    <div class="ds-col-header">',
-    '      <span class="ds-col-title">Tools &amp; Skills</span>',
-    '      <div class="ds-search-wrap">',
-    '        <span class="ds-search-icon">&#128269;</span>',
-    '        <input class="ds-search-input" id="__ds-tool-search" placeholder="Search tools..." />',
+    '    <div class="ds-left-tabs">',
+    '      <button class="ds-left-tab active" data-tab="tools">&#128295; Tools</button>',
+    '      <button class="ds-left-tab" data-tab="workspace">&#128193; Workspace</button>',
+    '    </div>',
+    '    <!-- Tools & Skills Panel -->',
+    '    <div class="ds-left-panel active" id="__ds-left-tools">',
+    '      <div class="ds-col-header">',
+    '        <span class="ds-col-title">Tools &amp; Skills</span>',
+    '        <div class="ds-search-wrap">',
+    '          <span class="ds-search-icon">&#128269;</span>',
+    '          <input class="ds-search-input" id="__ds-tool-search" placeholder="Search tools..." />',
+    '        </div>',
+    '      </div>',
+    '      <div class="ds-tool-list" id="__ds-tools-container"><div class="ds-empty-state"><span class="ds-empty-icon">&#9881;</span><div class="ds-empty-text">Loading tools...</div><div class="ds-empty-hint">Connect to server to load available tools</div></div></div>',
+    '      <div class="ds-skills-list" id="__ds-skills-container"></div>',
+    '      <button class="ds-add-skill-btn" id="__ds-btn-add-skill">+ Add Skill</button>',
+    '    </div>',
+    '    <!-- Workspace File Browser Panel -->',
+    '    <div class="ds-left-panel" id="__ds-left-workspace">',
+    '      <div class="ds-col-header">',
+    '        <span class="ds-col-title">Workspace Files</span>',
+    '        <button class="ds-fe-refresh" id="__ds-btn-ws-refresh" title="Refresh">&#8635;</button>',
+    '      </div>',
+    '      <div id="__ds-fe-current-path" class="ds-fe-current-path"></div>',
+    '      <div id="__ds-file-tree"><div class="__ds-file-loading">Waiting for server connection...</div></div>',
+    '      <div id="__ds-file-preview" class="__ds-hidden">',
+    '        <div class="__ds-preview-header">',
+    '          <span class="__ds-preview-title" id="__ds-preview-filename"></span>',
+    '          <button class="__ds-preview-close" id="__ds-btn-preview-close">&times;</button>',
+    '        </div>',
+    '        <pre class="__ds-preview-content" id="__ds-preview-content"></pre>',
     '      </div>',
     '    </div>',
-    '    <div class="ds-tool-list" id="__ds-tools-container"><div style="padding:16px;color:var(--cr-fallback-color-on-surface-subtle);text-align:center;">Loading...</div></div>',
-    '    <div class="ds-skills-list" id="__ds-skills-container"></div>',
-    '    <button class="ds-add-skill-btn" id="__ds-btn-add-skill">+ Add Skill</button>',
     '  </div>',
 
     '  <!-- Right Column: Live Logs -->',
@@ -154,6 +190,23 @@ function bindPanelEvents() {
   if (closeBtn) closeBtn.onclick = function() { togglePanel(false); };
   var header = document.getElementById('__ds-header');
   if (header) header.addEventListener('mousedown', startPanelDrag);
+
+  // Left column tabs
+  var leftTabs = document.querySelectorAll('.ds-left-tab');
+  for (var i = 0; i < leftTabs.length; i++) {
+    leftTabs[i].addEventListener('click', function() {
+      var tab = this.getAttribute('data-tab');
+      switchLeftTab(tab);
+    });
+  }
+
+  // Workspace refresh
+  var wsRefreshBtn = document.getElementById('__ds-btn-ws-refresh');
+  if (wsRefreshBtn) wsRefreshBtn.onclick = function() { loadFileBrowser(); };
+
+  // Preview close
+  var previewCloseBtn = document.getElementById('__ds-btn-preview-close');
+  if (previewCloseBtn) previewCloseBtn.onclick = function() { closeFilePreview(); };
 
   // Search
   var searchInput = document.getElementById('__ds-tool-search');
@@ -231,6 +284,14 @@ function bindPanelEvents() {
   if (qaCancel) qaCancel.onclick = hideAllModals;
   var qaClose = document.getElementById('__ds-qa-close');
   if (qaClose) qaClose.onclick = hideAllModals;
+
+  // Keyboard shortcut: Ctrl+Shift+D to toggle panel
+  document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+      e.preventDefault();
+      togglePanel();
+    }
+  });
 }
 
 // ============================================================
@@ -294,6 +355,59 @@ function panelDragEnd() {
   document.getElementById('__ds-agent-panel').style.transition = '';
   document.removeEventListener('mousemove', panelDragMove);
   document.removeEventListener('mouseup', panelDragEnd);
+}
+
+// ============================================================
+// Panel resize
+// ============================================================
+function startPanelResize(e) {
+  if (e.button !== 0) return;
+  panelResizing = true;
+  panelResizeStartX = e.clientX;
+  panelResizeStartY = e.clientY;
+  var p = document.getElementById('__ds-agent-panel');
+  panelResizeStartW = p.offsetWidth;
+  panelResizeStartH = p.offsetHeight;
+  p.style.transition = 'none';
+  document.addEventListener('mousemove', panelResizeMove);
+  document.addEventListener('mouseup', panelResizeEnd);
+  e.preventDefault();
+  e.stopPropagation();
+}
+function panelResizeMove(e) {
+  if (!panelResizing) return;
+  var p = document.getElementById('__ds-agent-panel');
+  var newW = Math.max(420, Math.min(panelResizeStartW + e.clientX - panelResizeStartX, window.innerWidth - 20));
+  var newH = Math.max(320, Math.min(panelResizeStartH + e.clientY - panelResizeStartY, window.innerHeight - 40));
+  p.style.width = newW + 'px';
+  p.style.height = newH + 'px';
+}
+function panelResizeEnd() {
+  if (!panelResizing) return;
+  panelResizing = false;
+  document.getElementById('__ds-agent-panel').style.transition = '';
+  document.removeEventListener('mousemove', panelResizeMove);
+  document.removeEventListener('mouseup', panelResizeEnd);
+}
+
+// ============================================================
+// Left column tab switching
+// ============================================================
+function switchLeftTab(tab) {
+  leftColumnTab = tab;
+  var tabs = document.querySelectorAll('.ds-left-tab');
+  for (var i = 0; i < tabs.length; i++) {
+    tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === tab);
+  }
+  var panels = document.querySelectorAll('.ds-left-panel');
+  for (var j = 0; j < panels.length; j++) {
+    var panelId = panels[j].id;
+    var isActive = (tab === 'tools' && panelId === '__ds-left-tools') || (tab === 'workspace' && panelId === '__ds-left-workspace');
+    panels[j].classList.toggle('active', isActive);
+  }
+  if (tab === 'workspace') {
+    loadFileBrowser();
+  }
 }
 
 // ============================================================
@@ -372,8 +486,9 @@ function renderToolCardsFiltered(query) {
     return !q || (t.name || '').toLowerCase().indexOf(q) >= 0 || (t.description || '').toLowerCase().indexOf(q) >= 0;
   });
   if (filtered.length === 0) {
-    container.innerHTML = '<div style="padding:16px;text-align:center;color:var(--cr-fallback-color-on-surface-subtle);font-size:var(--cr-font-size-sm);">' +
-      (q ? 'No tools match "' + escapeAttr(q) + '"' : 'No tools loaded') + '</div>';
+    container.innerHTML = '<div class="ds-empty-state"><span class="ds-empty-icon">&#128269;</span><div class="ds-empty-text">' +
+      (q ? 'No tools match "' + escapeAttr(q) + '"' : 'No tools loaded') + '</div><div class="ds-empty-hint">' +
+      (q ? 'Try a different search term' : 'Connect to the server to load tools') + '</div></div>';
     return;
   }
   var html = '';
@@ -508,7 +623,7 @@ function renderLogs() {
   var area = document.getElementById('__ds-log-area');
   if (!area) return;
   if (!executionHistory || executionHistory.length === 0) {
-    area.innerHTML = '<div style="padding:16px;text-align:center;color:var(--cr-fallback-color-on-surface-subtle);">No logs yet</div>';
+    area.innerHTML = '<div class="ds-empty-state"><span class="ds-empty-icon">&#128240;</span><div class="ds-empty-text">No logs yet</div><div class="ds-empty-hint">Agent activity will appear here in real-time</div></div>';
     return;
   }
   var recent = executionHistory.slice(-200);
@@ -517,20 +632,42 @@ function renderLogs() {
     filtered = recent.filter(function(l) { return l.level === logLevelFilter; });
   }
   if (filtered.length === 0) {
-    area.innerHTML = '<div style="padding:16px;text-align:center;color:var(--cr-fallback-color-on-surface-subtle);">No ' + logLevelFilter + ' logs</div>';
+    area.innerHTML = '<div class="ds-empty-state"><span class="ds-empty-icon">&#128269;</span><div class="ds-empty-text">No ' + logLevelFilter + ' logs</div><div class="ds-empty-hint">Switch to a different filter level</div></div>';
     return;
   }
   var html = '';
+  var countByLevel = { info: 0, warn: 0, error: 0, success: 0 };
   for (var i = 0; i < filtered.length; i++) {
     var log = filtered[i];
     var cls = 'ds-badge-' + (log.level === 'error' ? 'error' : log.level === 'warn' ? 'warn' : log.level === 'success' ? 'success' : 'info');
-    html += '<div class="ds-log-entry">';
+    var logIndex = executionHistory.indexOf(log);
+    var isExpanded = logIndex === expandedLogIndex;
+    html += '<div class="ds-log-entry' + (isExpanded ? ' ds-log-expanded' : '') + '" data-log-index="' + logIndex + '">';
     html += '<span class="ds-log-time">' + escapeAttr(log.time || '--:--') + '</span>';
     html += '<span class="ds-log-badge ' + cls + '">' + (log.level || 'info') + '</span>';
     html += '<span class="ds-log-msg">' + escapeAttr(log.message || '') + '</span>';
+    if (isExpanded && log.detail) {
+      html += '<div class="ds-log-detail">' + escapeAttr(log.detail) + '</div>';
+    }
     html += '</div>';
+    countByLevel[log.level] = (countByLevel[log.level] || 0) + 1;
   }
+  html += '<div class="ds-log-count-bar">';
+  html += '<span class="ds-log-count">' + filtered.length + ' entries</span>';
+  if (countByLevel.error > 0) html += '<span class="ds-log-count ds-log-count-error">' + countByLevel.error + ' errors</span>';
+  if (countByLevel.warn > 0) html += '<span class="ds-log-count ds-log-count-warn">' + countByLevel.warn + ' warns</span>';
+  html += '</div>';
   area.innerHTML = html;
+
+  var entries = area.querySelectorAll('.ds-log-entry');
+  for (var j = 0; j < entries.length; j++) {
+    entries[j].addEventListener('click', function() {
+      var idx = parseInt(this.getAttribute('data-log-index'));
+      expandedLogIndex = expandedLogIndex === idx ? -1 : idx;
+      renderLogs();
+    });
+  }
+
   if (autoScroll) scrollToLogBottom();
 }
 
@@ -680,6 +817,7 @@ window.showSettingsModal = function() {};
 window.hideAllModals = hideAllModals;
 window.logPanel = logPanel;
 window.updateSSEIndicator = updateSSEIndicator;
+window.switchLeftTab = switchLeftTab;
 window.__ds_retryConnect = function() { logPanel('info', '手动重试连接...'); if (typeof window.ensureServerRunning === 'function') window.ensureServerRunning(); };
 
 // ============================================================

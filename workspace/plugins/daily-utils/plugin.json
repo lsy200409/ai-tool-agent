@@ -1,0 +1,10 @@
+{
+  "id": "daily-utils",
+  "name": "Daily Utils",
+  "version": "1.0.0",
+  "description": "大学生日常工具集 — 待办清单、DDL倒计时、课程表管理、文本处理",
+  "entry": "index.js",
+  "requiredEngineVersion": "^2.3.0",
+  "tools": ["daily_todo", "daily_countdown", "daily_schedule", "daily_text"],
+  "kind": "utility"
+}

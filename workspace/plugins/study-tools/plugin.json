@@ -1,0 +1,10 @@
+{
+  "id": "study-tools",
+  "name": "Study Tools",
+  "version": "1.0.0",
+  "description": "大学生学习工具集 — 闪卡生成、模拟测验、笔记格式化、GPA计算、番茄钟",
+  "entry": "index.js",
+  "requiredEngineVersion": "^2.3.0",
+  "tools": ["study_flashcard", "study_quiz", "study_note_format", "study_gpa_calc", "study_pomodoro"],
+  "kind": "utility"
+}

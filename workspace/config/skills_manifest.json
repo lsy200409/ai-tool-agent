@@ -11,6 +11,18 @@
     {
       "name": "skill-creator",
       "enabled": true
+    },
+    {
+      "name": "pptx",
+      "enabled": true
+    },
+    {
+      "name": "docx",
+      "enabled": true
+    },
+    {
+      "name": "pdf",
+      "enabled": true
     }
   ],
   "custom_skills": []

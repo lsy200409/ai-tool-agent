@@ -1,315 +1,764 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <style>
-/* ===== Chromium Design Tokens (same as panel.js) ===== */
+/* ===== Design Tokens: Editorial / Industrial ===== */
 :root {
-  --cr-primary:#1a73e8; --cr-on-primary:#fff;
-  --cr-surface:#fff; --cr-surface-1:#f8f9fa; --cr-surface-variant:#eee;
-  --cr-on-surface:#202124; --cr-on-surface-subtle:#5f6368;
-  --cr-outline:#dadce0; --cr-error:#d93025;
-  --cr-disabled-bg:#f1f3f4; --cr-disabled-fg:#bdc1c6;
-  --google-blue:#4285f4; --google-green:#1e8e3e; --google-red:#d93025;
-  --google-yellow:#fcc934; --google-grey:#9aa0a6;
-  --cr-space-1:4px; --cr-space-2:8px; --cr-space-3:12px;
-  --cr-space-4:16px; --cr-space-5:20px; --cr-space-6:24px;
-  --cr-radius-xs:2px; --cr-radius-sm:4px; --cr-radius-md:8px;
-  --cr-radius-lg:16px; --cr-radius-full:100px;
-  --cr-font:"Roboto","Segoe UI",system-ui,-apple-system,sans-serif;
-  --cr-fs-xs:11px; --cr-fs-sm:12px; --cr-fs-md:13px;
-  --cr-fs-base:14px; --cr-fs-lg:16px;
+  --accent: oklch(0.65 0.18 70);
+  --accent-dim: oklch(0.65 0.18 70 / 0.12);
+  --accent-glow: oklch(0.65 0.18 70 / 0.25);
+  --surface: oklch(0.985 0.002 90);
+  --surface-raised: oklch(0.975 0.003 90);
+  --surface-hover: oklch(0.955 0.005 90);
+  --surface-active: oklch(0.93 0.008 90);
+  --text: oklch(0.18 0.005 90);
+  --text-secondary: oklch(0.44 0.012 90);
+  --text-tertiary: oklch(0.60 0.010 90);
+  --border: oklch(0.885 0.005 90);
+  --border-hover: oklch(0.75 0.02 75);
+  --error: oklch(0.52 0.20 25);
+  --error-bg: oklch(0.52 0.20 25 / 0.08);
+  --success: oklch(0.52 0.16 145);
+  --success-bg: oklch(0.52 0.16 145 / 0.08);
+  --shadow-1: 0 1px 2px oklch(0 0 0 / 0.04);
+  --shadow-2: 0 2px 8px oklch(0 0 0 / 0.06);
+  --shadow-3: 0 4px 16px oklch(0 0 0 / 0.10);
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-full: 999px;
+  --font: system-ui, -apple-system, "Segoe UI Variable", "SF Pro Text", sans-serif;
+  --font-mono: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+  --fs-xs: 10px;
+  --fs-sm: 11.5px;
+  --fs-base: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 18px;
 }
-*{margin:0;padding:0;box-sizing:border-box}
 
-body{
-  width:400px;min-height:480px;background:var(--cr-surface);
-  color:var(--cr-on-surface);font-family:var(--cr-font);
-  font-size:var(--cr-fs-sm);overflow:hidden;
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  width: 400px;
+  min-height: 480px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--fs-base);
+  overflow: hidden;
+  letter-spacing: -0.01em;
 }
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: oklch(0 0 0 / 0.12); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: oklch(0 0 0 / 0.22); }
 
 /* ===== Header ===== */
-#pm-header{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:10px 14px;border-bottom:1px solid var(--cr-outline);
-  background:var(--cr-surface-1);flex-shrink:0;
+#pm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 16px 11px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
-#pm-title{font-size:var(--cr-fs-base);font-weight:700;color:var(--google-blue)}
-#pm-title span{color:var(--google-blue)}
-.pm-close-btn{
-  width:28px;height:28px;border:1px solid transparent;
-  border-radius:var(--cr-radius-sm);background:none;cursor:pointer;
-  font-size:16px;color:var(--cr-on-surface-subtle);
-  display:flex;align-items:center;justify-content:center;
-  transition:all .15s ease;
+.pm-header-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
-.pm-close-btn:hover{
-  border-color:var(--cr-outline);background:var(--cr-surface-1);color:var(--cr-error)
+.pm-header-logo {
+  font-weight: 800;
+  font-size: var(--fs-lg);
+  color: var(--accent);
+  letter-spacing: -0.02em;
 }
-
-/* ===== Body Layout ===== */
-#pm-body{display:flex;min-height:420px}
-#pm-sidebar{
-  width:56px;display:flex;flex-direction:column;gap:2px;
-  padding:8px 4px;border-right:1px solid var(--cr-outline);
-  background:var(--cr-surface-1);flex-shrink:0;
+.pm-header-title {
+  font-weight: 600;
+  font-size: var(--fs-base);
+  color: var(--text);
 }
-.pm-nav-item{
-  display:flex;flex-direction:column;align-items:center;gap:3px;
-  padding:8px 2px;border:none;background:none;cursor:pointer;
-  font-family:var(--cr-font);font-size:9px;
-  color:var(--cr-on-surface-subtle);
-  transition:all .15s ease;border-left:2px solid transparent;
-  border-radius:0;
+.pm-header-ver {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  font-weight: 450;
 }
-.pm-nav-item:hover{
-  background:var(--cr-surface);border-left-color:var(--google-blue);
-  color:var(--cr-on-surface)
+.pm-close-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
 }
-.pm-nav-item.active{
-  color:var(--google-blue);border-left-color:var(--google-blue);
-  background:var(--cr-surface);font-weight:600
-}
-.pm-nav-icon{font-size:16px}
-.pm-nav-label{font-size:9px;letter-spacing:.3px;text-transform:uppercase}
-.pm-nav-divider{height:1px;background:var(--cr-outline);margin:4px 4px}
-
-/* ===== Content Area ===== */
-#pm-content{flex:1;overflow-y:auto;padding:var(--cr-space-4)}
-.pm-page{display:none}
-.pm-page.active{display:block}
-.pm-section{margin-bottom:var(--cr-space-5)}
-.pm-section-title{
-  font-size:var(--cr-fs-xs);font-weight:600;
-  color:var(--cr-on-surface-subtle);margin-bottom:var(--cr-space-3);
-  letter-spacing:.5px;text-transform:uppercase;padding-bottom:var(--cr-space-2);
-  border-bottom:1px solid var(--cr-outline)
+.pm-close-btn:hover {
+  background: var(--error-bg);
+  color: var(--error);
 }
 
-/* ===== Form Elements ===== */
-.pm-form-row{display:flex;align-items:center;margin-bottom:var(--cr-space-3);gap:var(--cr-space-3)}
-.pm-form-row-label{
-  width:70px;font-size:var(--cr-fs-xs);color:var(--cr-on-surface-subtle);
-  flex-shrink:0;font-weight:500
-}
-.pm-form-row-fill{flex:1;min-width:0}
-.pm-form-label{
-  display:block;font-size:var(--cr-fs-xs);font-weight:500;
-  color:var(--cr-on-surface-subtle);margin-bottom:4px
+/* ===== Body ===== */
+#pm-body {
+  display: flex;
+  min-height: 420px;
 }
 
-.pm-input{
-  width:100%;padding:7px 10px;border:1px solid var(--cr-outline);
-  background:var(--cr-surface);color:var(--cr-on-surface);
-  font-size:var(--cr-fs-sm);outline:none;font-family:var(--cr-font);
-  border-radius:var(--cr-radius-sm);transition:border-color .15s ease
+/* ===== Sidebar ===== */
+#pm-sidebar {
+  width: 52px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 4px;
+  background: var(--surface-raised);
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
 }
-.pm-input:focus{border-color:var(--google-blue)}
-.pm-input.error{border-color:var(--cr-error)}
-.pm-select{cursor:pointer}
+.pm-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 2px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 8.5px;
+  font-weight: 550;
+  color: var(--text-tertiary);
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  transition: all 0.12s ease;
+}
+.pm-nav-item:hover {
+  background: var(--surface);
+  color: var(--text-secondary);
+}
+.pm-nav-item.active {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  background: var(--surface);
+  font-weight: 650;
+}
+.pm-nav-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+.pm-nav-label {
+  font-size: 8.5px;
+  letter-spacing: 0.4px;
+}
+.pm-nav-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 5px 6px;
+}
+
+/* ===== Content ===== */
+#pm-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px;
+}
+.pm-page { display: none; }
+.pm-page.active { display: block; }
+
+/* Section headers — no card wrapping */
+.pm-section {
+  margin-bottom: 22px;
+}
+.pm-section:last-child {
+  margin-bottom: 0;
+}
+.pm-section-title {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--text-tertiary);
+  margin-bottom: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+/* ===== Status Row ===== */
+.pm-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+}
+.pm-status-badge {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: oklch(0.80 0.01 90);
+  transition: all 0.3s;
+}
+.pm-status-badge.checking {
+  animation: pulse-check 1.2s ease-in-out infinite;
+  background: var(--accent);
+}
+.pm-status-badge.running {
+  background: var(--success);
+  box-shadow: 0 0 8px var(--success-bg);
+}
+.pm-status-badge.stopped {
+  background: var(--error);
+  box-shadow: 0 0 8px var(--error-bg);
+}
+@keyframes pulse-check {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+.pm-status-info { flex: 1; min-width: 0; }
+.pm-status-label {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text);
+}
+.pm-status-detail {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  margin-top: 1px;
+}
+.pm-btn-icon {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
+  flex-shrink: 0;
+}
+.pm-btn-icon:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
 
 /* ===== Buttons ===== */
-.pm-btn{
-  padding:7px 14px;border:1px solid var(--cr-outline);
-  font-size:var(--cr-fs-xs);cursor:pointer;font-family:var(--cr-font);
-  border-radius:var(--cr-radius-sm);transition:all .15s ease;
-  background:var(--cr-surface);color:var(--cr-on-surface);
-  display:inline-flex;align-items:center;justify-content:center;gap:4px
+.pm-btn-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }
-.pm-btn:hover{background:var(--cr-surface-1);border-color:var(--google-blue);color:var(--google-blue)}
-.pm-btn-primary{
-  background:var(--google-blue);color:#fff;border-color:var(--google-blue);
-  font-weight:600
+.pm-btn-group .pm-btn {
+  flex: 1;
+  min-width: 0;
 }
-.pm-btn-primary:hover{opacity:.92;background:var(--google-blue);color:#fff}
-.pm-btn-danger{
-  color:var(--cr-error);border-color:rgba(217,48,37,.3);
-  background:rgba(217,48,37,.06)
+.pm-btn {
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  cursor: pointer;
+  font-family: var(--font);
+  border-radius: var(--radius-sm);
+  transition: all 0.12s ease;
+  background: var(--surface);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  letter-spacing: -0.01em;
 }
-.pm-btn-danger:hover{border-color:var(--cr-error);background:rgba(217,48,37,.1)}
-.pm-btn-sm{padding:4px 10px;font-size:10px}
-.pm-btn-block{display:block;width:100%;text-align:center;margin-bottom:var(--cr-space-2)}
+.pm-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-hover);
+}
+.pm-btn:active {
+  background: var(--surface-active);
+}
+.pm-btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.pm-btn-primary:hover {
+  background: oklch(0.68 0.18 70);
+  border-color: oklch(0.68 0.18 70);
+  color: #fff;
+}
+.pm-btn-secondary {
+  background: var(--surface);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.pm-btn-secondary:hover {
+  background: var(--accent-dim);
+}
+.pm-btn-danger {
+  color: var(--error);
+  border-color: oklch(0.52 0.20 25 / 0.2);
+  background: var(--error-bg);
+}
+.pm-btn-danger:hover {
+  border-color: var(--error);
+  background: oklch(0.52 0.20 25 / 0.14);
+}
+.pm-btn-sm {
+  padding: 4px 10px;
+  font-size: var(--fs-xs);
+}
+.pm-btn-block {
+  display: block;
+  width: 100%;
+  text-align: center;
+  margin-bottom: 7px;
+}
+.pm-btn-block:last-child {
+  margin-bottom: 0;
+}
 
-/* ===== Status Dot ===== */
-.pm-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;transition:all .3s}
-.pm-dot-grey{background:var(--cr-disabled-fg)}
-.pm-dot.online{background:var(--google-green);box-shadow:0 0 6px rgba(30,142,62,.35)}
-.pm-dot.offline{background:var(--cr-error)}
+/* ===== Form ===== */
+.pm-form-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 10px;
+}
+.pm-form-row:last-child { margin-bottom: 0; }
+.pm-form-row-label {
+  width: 64px;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  font-weight: 550;
+}
+.pm-form-row-fill {
+  flex: 1;
+  min-width: 0;
+}
+.pm-input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-family: var(--font);
+  outline: none;
+  border-radius: var(--radius-sm);
+  transition: border-color 0.12s ease;
+}
+.pm-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.pm-select { cursor: pointer; }
+
+/* ===== Toggle ===== */
+.pm-toggle-track {
+  width: 34px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  background: oklch(0.78 0.01 90);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.18s ease;
+  display: inline-block;
+  vertical-align: middle;
+}
+.pm-toggle-track.on {
+  background: var(--accent);
+}
+.pm-toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.18s cubic-bezier(0.22, 0.61, 0.36, 1);
+  box-shadow: 0 1px 2px oklch(0 0 0 / 0.15);
+}
+.pm-toggle-track.on::after {
+  transform: translateX(14px);
+}
+
+/* ===== Status Badge ===== */
+.pm-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+.pm-badge-on  { color: var(--success); background: var(--success-bg); }
+.pm-badge-off { color: var(--text-tertiary); background: oklch(0.90 0.005 90); }
+
+/* ===== Log ===== */
+#pm-log-filter-tabs {
+  display: flex;
+  gap: 3px;
+  margin-bottom: 10px;
+}
+.pm-log-tab {
+  padding: 4px 11px;
+  border: none;
+  background: none;
+  font-size: var(--fs-xs);
+  font-weight: 550;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-family: var(--font);
+  transition: all 0.12s ease;
+}
+.pm-log-tab:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.pm-log-tab.active {
+  background: var(--accent);
+  color: #fff;
+}
+.pm-log-box {
+  max-height: 210px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  min-height: 40px;
+  box-shadow: var(--shadow-1);
+}
+.pm-log-line {
+  padding: 2px 0;
+  border-bottom: 1px solid oklch(0 0 0 / 0.03);
+}
+.pm-log-line:last-child { border-bottom: none; }
+.pm-log-line span {
+  color: var(--text-tertiary);
+  margin-right: 5px;
+}
+.pm-log-line.success { color: var(--success); }
+.pm-log-line.error   { color: var(--error); }
+.pm-log-line.info    { color: var(--text); }
+
+/* ===== Log Preview ===== */
+#pm-log-preview {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  box-shadow: var(--shadow-1);
+}
 
 /* ===== Toast ===== */
-#pm-toast{
-  position:fixed;bottom:12px;left:50%;transform:translateX(-50%);
-  z-index:100;padding:8px 20px;font-size:var(--cr-fs-xs);
-  font-family:var(--cr-font);opacity:0;transition:opacity .3s;
-  pointer-events:none;background:var(--cr-on-surface);color:var(--cr-surface);
-  border:1px solid var(--cr-outline);border-radius:var(--cr-radius-full);
-  box-shadow:0 2px 8px rgba(60,64,67,.2)
+#pm-toast {
+  position: fixed;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  padding: 8px 18px;
+  font-size: var(--fs-xs);
+  font-family: var(--font);
+  font-weight: 500;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+  background: var(--text);
+  color: var(--surface);
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-2);
 }
-#pm-toast.show{opacity:1}
+#pm-toast.show { opacity: 1; }
 
 /* ===== Modal ===== */
-.pm-modal-overlay{
-  position:fixed;inset:0;background:rgba(0,0,0,.35);
-  z-index:200;display:none;align-items:center;justify-content:center
+.pm-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: oklch(0 0 0 / 0.30);
+  z-index: 200;
+  display: none;
+  align-items: center;
+  justify-content: center;
 }
-.pm-modal-overlay.show{display:flex;padding:20px}
-.pm-modal{
-  background:var(--cr-surface);border:1px solid var(--cr-outline);
-  border-radius:var(--cr-radius-lg);padding:var(--cr-space-5);
-  width:380px;max-height:70vh;overflow-y:auto;
-  box-shadow:0 4px 16px rgba(60,64,67,.25);z-index:1
+.pm-modal-overlay.show {
+  display: flex;
+  padding: 20px;
 }
-.pm-modal-title{font-size:var(--cr-fs-lg);font-weight:500;margin-bottom:var(--cr-space-4)}
-.pm-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:var(--cr-space-4)}
+.pm-modal {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+  width: 370px;
+  max-height: 65vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-3);
+  z-index: 1;
+}
+.pm-modal-title {
+  font-size: var(--fs-lg);
+  font-weight: 650;
+  margin-bottom: 16px;
+  color: var(--text);
+}
+.pm-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
 
-/* ===== Lists ===== */
-#pm-tools-list,#pm-skills-list,#pm-qa-list{display:flex;flex-direction:column;gap:4px}
-.pm-empty{text-align:center;padding:24px;color:var(--cr-on-surface-subtle);font-size:var(--cr-fs-xs)}
+/* ===== Progress bar ===== */
+.pm-progress {
+  display: none;
+  height: 3px;
+  background: oklch(0.90 0.005 90);
+  border-radius: 2px;
+  margin-top: 10px;
+  overflow: hidden;
+}
+.pm-progress.show { display: block; }
+.pm-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
 
-.pm-list-header{
-  display:flex;align-items:center;padding:6px 8px;
-  font-size:10px;font-weight:600;color:var(--cr-on-surface-subtle);
-  text-transform:uppercase;letter-spacing:.5px;
-  border-bottom:1px solid var(--cr-outline);border-radius:var(--cr-radius-sm);
-  background:var(--cr-surface-1)
+/* ===== Start status ===== */
+#pm-start-status {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  min-height: 18px;
+  margin-top: 7px;
 }
-.pm-list-row{
-  display:flex;align-items:center;gap:8px;padding:8px 10px;
-  border-bottom:1px solid var(--cr-outline);transition:background .15s
-}
-.pm-list-row:hover{background:var(--cr-surface-1)}
-.pm-list-name{font-size:var(--cr-fs-sm);font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pm-list-desc{font-size:10px;color:var(--cr-on-surface-subtle);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pm-list-action{flex-shrink:0}
 
-/* Badges */
-.pm-badge{
-  display:inline-block;padding:2px 8px;border-radius:var(--cr-radius-full);
-  font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase
+/* ===== Help box ===== */
+.pm-help-box {
+  padding: 10px 12px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  margin-top: 8px;
+  box-shadow: var(--shadow-1);
 }
-.pm-badge-auto{color:var(--google-blue);background:#e8f0fe}
-.pm-badge-manual{color:var(--google-yellow);background:#fef7e0}
-.pm-badge-off,.pm-badge-off2{color:var(--cr-on-surface-subtle);background:var(--cr-surface-variant)}
-.pm-badge-on{color:var(--google-green);background:#e6f4ea}
+.pm-help-title {
+  font-weight: 650;
+  font-size: var(--fs-base);
+  margin-bottom: 8px;
+  color: var(--text);
+}
+.pm-help-method {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+.pm-help-method b {
+  color: var(--text);
+}
+.pm-help-cmd {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--accent);
+  margin: 3px 0 3px 10px;
+  word-break: break-all;
+  background: oklch(0 0 0 / 0.03);
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+}
+.pm-help-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  margin: 2px 0 2px 14px;
+  line-height: 1.5;
+}
+.pm-help-note {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: oklch(0 0 0 / 0.03);
+  border-radius: var(--radius-sm);
+  line-height: 1.6;
+}
+.pm-btn-copy {
+  margin: 5px 0 0 10px;
+  padding: 3px 10px;
+  font-size: var(--fs-xs);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font);
+  transition: all 0.12s ease;
+}
+.pm-btn-copy:hover {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
 
-/* Toggle */
-.pm-toggle-track{
-  width:32px;height:18px;border-radius:var(--cr-radius-full);
-  background:var(--cr-disabled-fg);position:relative;cursor:pointer;
-  transition:background .2s;display:inline-block;vertical-align:middle
+/* ===== Empty state ===== */
+.pm-empty {
+  text-align: center;
+  padding: 24px;
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
 }
-.pm-toggle-track.on{background:var(--google-blue)}
-.pm-toggle-track::after{
-  content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;
-  background:#fff;border-radius:50%;transition:transform .2s;
-  box-shadow:0 1px 2px rgba(0,0,0,.2)
-}
-.pm-toggle-track.on::after{transform:translateX(14px)}
 
-/* Log Tabs */
-#pm-log-filter-tabs{display:flex;gap:2px;margin-bottom:var(--cr-space-3)}
-.pm-log-tab{
-  padding:4px 12px;border:none;background:none;font-size:var(--cr-fs-xs);
-  color:var(--cr-on-surface-subtle);cursor:pointer;border-radius:var(--cr-radius-sm);
-  font-weight:500;transition:all .15s
+/* ===== Preview section ===== */
+#pm-appearance-preview {
+  padding: 14px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
 }
-.pm-log-tab:hover{background:var(--cr-surface-1)}
-.pm-log-tab.active{background:var(--google-blue);color:#fff}
 
-/* Scrollbar */
-::-webkit-scrollbar{width:6px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--cr-disabled-bg);border-radius:3px}
-::-webkit-scrollbar-thumb:hover{background:var(--cr-on-surface-subtle)}
+/* ===== Utilities ===== */
+.hidden { display: none !important; }
+.pm-ver { font-size: var(--fs-xs); color: var(--text-tertiary); }
+
+/* ===== About ===== */
+.pm-about-hero {
+  text-align: center;
+  padding: 28px 0 20px;
+}
+.pm-about-logo {
+  font-size: 36px;
+  font-weight: 800;
+  color: var(--accent);
+  margin-bottom: 6px;
+  letter-spacing: -0.03em;
+}
+.pm-about-name {
+  font-size: var(--fs-lg);
+  font-weight: 650;
+}
+.pm-about-version {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+.pm-about-desc {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
 </style>
 </head>
 <body>
 
 <!-- Header -->
 <div id="pm-header">
-  <div id="pm-title"><span>[DS]</span> Agent v2.5</div>
+  <div class="pm-header-brand">
+    <span class="pm-header-logo">[DS]</span>
+    <span class="pm-header-title">Tool Agent</span>
+    <span class="pm-header-ver" id="pm-version">v2.6</span>
+  </div>
   <button class="pm-close-btn" id="pm-btn-close" title="关闭">&times;</button>
 </div>
 
 <!-- Body -->
 <div id="pm-body">
-  <!-- Sidebar Navigation -->
+  <!-- Sidebar -->
   <nav id="pm-sidebar">
     <button class="pm-nav-item active" data-page="connection"><span class="pm-nav-icon">&#8962;</span><span class="pm-nav-label">连接</span></button>
     <button class="pm-nav-item" data-page="quickactions"><span class="pm-nav-icon">&#9889;</span><span class="pm-nav-label">快捷</span></button>
-    <button class="pm-nav-item" data-page="logs"><span class="pm-nav-icon">&#128196;</span><span class="pm-nav-label">日志</span></button>
+    <button class="pm-nav-item" data-page="logs"><span class="pm-nav-icon">&#9776;</span><span class="pm-nav-label">日志</span></button>
     <div class="pm-nav-divider"></div>
-    <button class="pm-nav-item" data-page="appearance"><span class="pm-nav-icon">&#9783;</span><span class="pm-nav-label">外观</span></button>
-    <button class="pm-nav-item" data-page="data"><span class="pm-nav-icon">&#128190;</span><span class="pm-nav-label">数据</span></button>
-    <button class="pm-nav-item" data-page="about"><span class="pm-nav-icon">&#8505;</span><span class="pm-nav-label">关于</span></button>
+    <button class="pm-nav-item" data-page="appearance"><span class="pm-nav-icon">&#9673;</span><span class="pm-nav-label">外观</span></button>
+    <button class="pm-nav-item" data-page="data"><span class="pm-nav-icon">&#9681;</span><span class="pm-nav-label">数据</span></button>
+    <button class="pm-nav-item" data-page="about"><span class="pm-nav-icon">&#9432;</span><span class="pm-nav-label">关于</span></button>
   </nav>
 
-  <!-- Content Pages -->
+  <!-- Content -->
   <main id="pm-content">
 
-    <!-- === CONNECTION PAGE === -->
+    <!-- ===== CONNECTION ===== -->
     <div class="pm-page active" id="pm-page-connection">
       <div class="pm-section">
-        <div class="pm-section-title">API 配置</div>
-        <div class="pm-form-row">
-          <label class="pm-form-row-label">后端地址</label>
-          <div class="pm-form-row-fill"><input class="pm-input" id="pm-api-url" placeholder="http://localhost:3002" /></div>
-        </div>
-        <div class="pm-form-row">
-          <label class="pm-form-row-label">API 密钥</label>
-          <div class="pm-form-row-fill" style="display:flex;gap:4px">
-            <input class="pm-input" id="pm-api-key" type="password" placeholder="sk-..." style="flex:1" />
-            <button class="pm-btn pm-btn-sm" id="pm-btn-showkey">显示</button>
+        <div class="pm-section-title">服务状态</div>
+        <div class="pm-status-row">
+          <span class="pm-status-badge" id="pm-status-badge"></span>
+          <div class="pm-status-info">
+            <div class="pm-status-label" id="pm-status-text">检测中...</div>
+            <div class="pm-status-detail" id="pm-status-detail"></div>
           </div>
-        </div>
-        <div class="pm-form-row">
-          <label class="pm-form-row-label">超时 (秒)</label>
-          <div class="pm-form-row-fill"><input class="pm-input" id="pm-timeout" type="number" min="1" max="30" value="10" /></div>
-        </div>
-        <div class="pm-form-row">
-          <label class="pm-form-row-label" style="display:block">WS 地址 (可选)</label>
-          <div class="pm-form-row-fill"><input class="pm-input" id="pm-ws-url" placeholder="ws://localhost:3002/ws" /></div>
-          <div style="font-size:10px;color:var(--cr-on-surface-subtle);margin-top:2px">WebSocket 实时通信地址，用于接收服务端推送的日志和状态更新</div>
+          <button class="pm-btn-icon" id="pm-btn-refresh-status" title="刷新">&#x21bb;</button>
         </div>
       </div>
 
       <div class="pm-section">
-        <div class="pm-section-title">连接状态</div>
-        <div class="pm-form-row">
-          <label class="pm-form-row-label">状态</label>
-          <div class="pm-form-row-fill" style="display:flex;align-items:center;gap:8px">
-            <span class="pm-dot pm-dot-grey" id="pm-conn-dot"></span>
-            <span id="pm-conn-status" style="font-size:var(--cr-fs-sm)">未检测</span>
+        <div class="pm-section-title">服务控制</div>
+        <div class="pm-btn-group">
+          <button class="pm-btn pm-btn-primary" id="pm-btn-start-server">&#9654; 启动服务</button>
+          <button class="pm-btn pm-btn-secondary" id="pm-btn-restart-server">&#x21bb; 重启</button>
+          <button class="pm-btn pm-btn-danger" id="pm-btn-stop-server">&#9724; 停止</button>
+        </div>
+        <div id="pm-start-progress" class="pm-progress">
+          <div id="pm-start-progress-bar" class="pm-progress-bar" style="width:0%"></div>
+        </div>
+        <div id="pm-start-status"></div>
+      </div>
+
+      <div class="pm-section">
+        <div class="pm-section-title">启动日志</div>
+        <div id="pm-log" class="pm-log-box"></div>
+      </div>
+    </div>
+
+    <!-- ===== QUICK ACTIONS ===== -->
+    <div class="pm-page" id="pm-page-quickactions">
+      <div class="pm-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span class="pm-section-title" style="margin-bottom:0;">快捷操作 (最多5个)</span>
+          <div style="display:flex;gap:4px;">
+            <button class="pm-btn pm-btn-sm" id="pm-btn-add-qa">+ 添加</button>
+            <button class="pm-btn pm-btn-sm" id="pm-btn-import-preset">导入预设</button>
           </div>
         </div>
-        <button class="pm-btn pm-btn-primary pm-btn-block" id="pm-btn-test-conn">测试连接</button>
-        <button class="pm-btn pm-btn-block" id="pm-btn-start-server" style="margin-top:6px">&#9889; 启动服务 (node tool-server.js)</button>
+        <div id="pm-qa-list"></div>
       </div>
     </div>
 
-    <!-- === QUICK ACTIONS PAGE === -->
-    <div class="pm-page" id="pm-page-quickactions">
-      <div class="pm-section" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--cr-space-3)">
-        <div class="pm-section-title" style="margin:0">快捷操作 (最多5个)</div>
-        <div style="display:flex;gap:4px">
-          <button class="pm-btn pm-btn-sm" id="pm-btn-add-qa">+ 添加</button>
-          <button class="pm-btn pm-btn-sm" id="pm-btn-import-preset">导入预设</button>
-        </div>
-      </div>
-      <div id="pm-qa-list"></div>
-    </div>
-
-    <!-- === LOGS PAGE === -->
+    <!-- ===== LOGS ===== -->
     <div class="pm-page" id="pm-page-logs">
       <div class="pm-section">
         <div class="pm-section-title">日志预览</div>
         <div id="pm-log-filter-tabs">
-          <button class="pm-log-tab" data-level="all">全部</button>
+          <button class="pm-log-tab active" data-level="all">全部</button>
           <button class="pm-log-tab" data-level="info">Info</button>
           <button class="pm-log-tab" data-level="warn">Warn</button>
           <button class="pm-log-tab" data-level="error">Error</button>
         </div>
-        <div id="pm-log-preview" style="max-height:240px;overflow-y:auto;border:1px solid var(--cr-outline);border-radius:var(--cr-radius-md);padding:8px;background:var(--cr-surface-1)"><div class="pm-empty" style="padding:20px">暂无日志</div></div>
+        <div id="pm-log-preview"><div class="pm-empty">暂无日志</div></div>
       </div>
       <div class="pm-section">
         <div class="pm-form-row">
@@ -323,11 +772,11 @@ body{
       </div>
       <div class="pm-section">
         <button class="pm-btn pm-btn-block" id="pm-btn-export-logs">&#8615; 导出日志</button>
-        <button class="pm-btn pm-btn-block pm-btn-danger" id="pm-btn-clear-logs">&#128465; 清除所有日志</button>
+        <button class="pm-btn pm-btn-block pm-btn-danger" id="pm-btn-clear-logs">清除所有日志</button>
       </div>
     </div>
 
-    <!-- === APPEARANCE PAGE === -->
+    <!-- ===== APPEARANCE ===== -->
     <div class="pm-page" id="pm-page-appearance">
       <div class="pm-section">
         <div class="pm-section-title">主题设置</div>
@@ -367,7 +816,7 @@ body{
       </div>
     </div>
 
-    <!-- === DATA PAGE === -->
+    <!-- ===== DATA ===== -->
     <div class="pm-page" id="pm-page-data">
       <div class="pm-section">
         <div class="pm-section-title">备份与恢复</div>
@@ -382,16 +831,16 @@ body{
       </div>
     </div>
 
-    <!-- === ABOUT PAGE === -->
+    <!-- ===== ABOUT ===== -->
     <div class="pm-page" id="pm-page-about">
-      <div class="pm-section" style="text-align:center;padding:var(--cr-space-6) 0">
-        <div style="font-size:32px;font-weight:700;color:var(--google-blue);margin-bottom:var(--cr-space-2)">[DS]</div>
-        <div style="font-size:var(--cr-fs-lg);font-weight:500">DeepSeek 工具代理</div>
-        <div style="font-size:var(--cr-fs-xs);color:var(--cr-on-surface-subtle);margin-top:4px">v2.5.0 &middot; Chrome 扩展 MV3</div>
+      <div class="pm-about-hero">
+        <div class="pm-about-logo">[DS]</div>
+        <div class="pm-about-name">DeepSeek 工具代理</div>
+        <div class="pm-about-version">v2.6.0 &middot; Chrome MV3</div>
       </div>
       <div class="pm-section">
         <div class="pm-section-title">描述</div>
-        <p style="font-size:var(--cr-fs-sm);color:var(--cr-on-surface-subtle);line-height:1.6">为 DeepSeek 网页版添加本地工具调用能力。支持提示注入、自动检测、工具执行和结果注入。</p>
+        <p class="pm-about-desc">为 DeepSeek 网页版添加本地工具调用能力。支持提示注入、自动检测、工具执行和结果注入。</p>
       </div>
       <div class="pm-section">
         <button class="pm-btn pm-btn-block" id="pm-btn-diagnose">&#9878; 运行诊断</button>
@@ -405,7 +854,7 @@ body{
 <!-- Toast -->
 <div id="pm-toast"></div>
 
-<!-- Modal overlay -->
+<!-- Modal -->
 <div class="pm-modal-overlay" id="pm-modal-overlay">
   <div class="pm-modal" id="pm-modal-content"></div>
 </div>

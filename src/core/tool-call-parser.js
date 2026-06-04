@@ -80,9 +80,20 @@ function parseSingleCall(rawTag) {
 
 function parseToolCalls(text) {
   var results = [];
-  // 主格式: <tool_call name="x">...</tool_call>
+
+  // 修复 SSE 拦截器丢失的 < 符号
+  // DeepSeek SSE 流可能将 <tool_call 拆分为多个 chunk，
+  // 导致 SSE 拦截器的 accumulatedText 丢失开头的 <
+  // 检测 "tool_call" 前面没有 "<" 的情况，补上 "<"
+  var fixedText = text;
+  // 修复开标签: tool_call name=" → <tool_call name="
+  fixedText = fixedText.replace(/(^|[^<])(tool_call\s+name=["'])/gi, '$1<$2');
+  // 修复闭标签: /tool_call> → </tool_call
+  fixedText = fixedText.replace(/(^|[^<])(\/tool_call>)/gi, '$1<$2');
+
+  // 主格式: <tool_call name="x">...</tool_call</tool_call>
   var regex = /<tool_call[\s\S]*?<\/tool_call>/gi;
-  var matches = text.match(regex) || [];
+  var matches = fixedText.match(regex) || [];
 
   for (var i = 0; i < matches.length; i++) {
     var parsed = parseSingleCall(matches[i]);

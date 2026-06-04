@@ -566,163 +566,18 @@
         result: result
       }, '*');
     }
-  });
 
-  // ============================================================
-  // SSE Stream Interception
-  // 拦截 DeepSeek API 的 SSE 流，实时感知 AI 生成状态
-  // 替代 DOM 轮询检测流式输出的脆弱方案
-  // ============================================================
-  (function() {
-    var DS_API_PATTERN = /chat\/completion/;
-    var SSEContentType = 'text/event-stream';
-
-    var _streamState = {
-      active: false,
-      accumulatedText: '',
-      lastChunkTime: 0,
-      finishReason: null,
-      requestCount: 0,
-      requestUrl: ''
-    };
-
-    function parseSSEStream(stream) {
-      var reader = stream.getReader();
-      var decoder = new TextDecoder();
-      var buffer = '';
-      var fullText = '';
-      var chunkCount = 0;
-      var streamStarted = false;
-
-      function processChunk(result) {
-        if (result.done) return;
-
-        buffer += decoder.decode(result.value, { stream: true });
-        var lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (var i = 0; i < lines.length; i++) {
-          var line = lines[i].trim();
-          if (!line || line.indexOf('data:') !== 0) continue;
-
-          var payload = line.substring(5).trim();
-          if (payload === '[DONE]') {
-            _streamState.active = false;
-            _streamState.finishReason = 'stop';
-            window.postMessage({
-              source: 'deepseek-tool-agent',
-              type: '__ds_stream_end',
-              text: fullText,
-              finishReason: 'stop'
-            }, '*');
-            continue;
-          }
-
-          try {
-            var data = JSON.parse(payload);
-            var choices = data.choices;
-            if (!choices || !choices.length) continue;
-
-            var delta = choices[0].delta;
-            if (!delta) continue;
-
-            var content = delta.content;
-            if (content) {
-              if (!streamStarted) {
-                streamStarted = true;
-                _streamState.active = true;
-                _streamState.accumulatedText = '';
-                _streamState.lastChunkTime = Date.now();
-                window.postMessage({
-                  source: 'deepseek-tool-agent',
-                  type: '__ds_stream_start',
-                  requestCount: _streamState.requestCount
-                }, '*');
-              }
-
-              chunkCount++;
-              fullText += content;
-              _streamState.accumulatedText = fullText;
-              _streamState.lastChunkTime = Date.now();
-
-              if (chunkCount % 10 === 0 || chunkCount === 1) {
-                window.postMessage({
-                  source: 'deepseek-tool-agent',
-                  type: '__ds_stream_chunk',
-                  text: content,
-                  fullText: fullText,
-                  chunkCount: chunkCount
-                }, '*');
-              }
-            }
-
-            var finishReason = choices[0].finish_reason;
-            if (finishReason && finishReason !== 'stop') {
-              _streamState.active = false;
-              _streamState.finishReason = finishReason;
-              window.postMessage({
-                source: 'deepseek-tool-agent',
-                type: '__ds_stream_end',
-                text: fullText,
-                finishReason: finishReason
-              }, '*');
-            }
-          } catch (e) {}
-        }
-
-        return reader.read().then(processChunk);
-      }
-
-      reader.read().then(processChunk).catch(function(err) {
-        _streamState.active = false;
-        window.postMessage({
-          source: 'deepseek-tool-agent',
-          type: '__ds_stream_end',
-          text: fullText,
-          error: err.message
-        }, '*');
-      });
+    if (data.type === '__ds_heartbeat_injected') {
+      var ss = window.__ds_streamState ? window.__ds_streamState() : { active: false };
+      window.postMessage({
+        source: 'deepseek-tool-agent',
+        type: '__ds_heartbeat_injected_ack',
+        alive: true,
+        streamActive: ss.active,
+        fetchPatched: true,
+        timestamp: Date.now()
+      }, '*');
     }
-
-    var _origFetch = window.fetch;
-    window.fetch = function(input, init) {
-      var url = typeof input === 'string' ? input : (input && input.url || '');
-
-      if (!DS_API_PATTERN.test(url)) {
-        return _origFetch.apply(this, arguments);
-      }
-
-      var fetchPromise = _origFetch.apply(this, arguments);
-
-      return fetchPromise.then(function(response) {
-        if (!response.ok || !response.body) return response;
-
-        var contentType = response.headers.get('content-type') || '';
-        if (contentType.indexOf(SSEContentType) === -1) return response;
-
-        _streamState.requestCount++;
-        _streamState.requestUrl = url;
-
-        try {
-          var teeStreams = response.body.tee();
-          parseSSEStream(teeStreams[0]);
-
-          return new Response(teeStreams[1], {
-            status: response.status,
-            statusText: response.statusText,
-            headers: response.headers
-          });
-        } catch (teeErr) {
-          return response;
-        }
-      }).catch(function(err) {
-        throw err;
-      });
-    };
-
-    window.__ds_streamState = function() { return _streamState; };
-    window.__ds_isStreamActive = function() { return _streamState.active; };
-    window.__ds_getStreamText = function() { return _streamState.accumulatedText; };
-  })();
+  });
 
 })();

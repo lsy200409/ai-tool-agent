@@ -16,6 +16,16 @@ quick-diag.js
 test-buttons.js
 test-plugin-manager.js
 
+# Temp JSON files
+*-diagnosis-*.json
+*-body-*.json
+*-test-*.json
+*-sim-*.json
+*-logs-*.json
+*-fetch-*.json
+*-verify-*.json
+*-data-*.json
+
 # Screenshots
 *.png
 !icons/*.png
@@ -50,6 +60,7 @@ workspace/bug_analysis.md
 用户消息检测修复-测试清单.md
 后端测试清单.md
 前后端联调对照表
+明日方舟风格.md
 
 # Playwright
 .browser-data*/
