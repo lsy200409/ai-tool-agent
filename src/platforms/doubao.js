@@ -12,6 +12,9 @@
 
       extractContent: function(chunk) {
         if (!chunk) return null;
+        // 豆包 SSE 数据交替发送 patch_op 和 text 两种格式
+        // 优先使用 text（增量文本），忽略 patch_op（累积文本），避免重复
+        if (chunk.text) return chunk.text;
         // Samantha 格式: event_type=2001
         if (chunk.event_type === 2001 && chunk.event_data) {
           try {
@@ -27,19 +30,7 @@
             }
           } catch(e) {}
         }
-        // SSE event 格式 - chunk.text 是增量文本
-        if (chunk.text) return chunk.text;
-        // patch_op 格式 - tts_content 可能是完整文本
-        if (chunk.patch_op) {
-          for (var i = 0; i < chunk.patch_op.length; i++) {
-            if (chunk.patch_op[i].patch_value) {
-              var pv = chunk.patch_op[i].patch_value;
-              // 优先用 text_content，其次 tts_content
-              if (pv.text_content) return pv.text_content;
-              if (pv.tts_content) return pv.tts_content;
-            }
-          }
-        }
+        // 注意：patch_op 格式包含累积文本，与 text 增量文本重复，跳过
         // content_block 格式
         if (chunk.content && chunk.content.content_block) {
           var texts = [];

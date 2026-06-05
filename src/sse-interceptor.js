@@ -226,6 +226,20 @@
       try {
         var chunk = JSON.parse(payload);
 
+        // 调试：记录原始 SSE chunk
+        if (_debug.streamEvents.length < 200) {
+          var chunkKeys = Object.keys(chunk).join(',');
+          _debug.streamEvents.push({
+            type: 'raw_chunk',
+            keys: chunkKeys,
+            hasText: !!chunk.text,
+            hasEventType: chunk.event_type !== undefined,
+            hasPatchOp: !!chunk.patch_op,
+            hasContent: !!chunk.content,
+            ts: Date.now()
+          });
+        }
+
         var endReason = detectStreamEnd(chunk);
         if (endReason) {
           onStreamEnd(endReason, ctx);
