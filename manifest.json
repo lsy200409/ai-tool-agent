@@ -25,6 +25,8 @@
     "https://www.qianwen.com/*",
     "https://qianwen.com/*",
     "https://chatglm.cn/*",
+    "https://chat.z.ai/*",
+    "https://z.ai/*",
     "https://www.doubao.com/*",
     "https://doubao.com/*",
     "http://localhost:3002/*",
@@ -52,7 +54,7 @@
         "https://www.doubao.com/*",
         "https://doubao.com/*"
       ],
-      "js": ["src/platforms/platform-registry.js", "src/platforms/deepseek.js", "src/platforms/chatgpt.js", "src/platforms/kimi.js", "src/platforms/qwen.js", "src/platforms/qwen-intl.js", "src/platforms/chatglm.js", "src/platforms/doubao.js", "src/sse-interceptor.js"],
+      "js": ["src/platforms/platform-registry.js", "src/platforms/deepseek.js", "src/platforms/chatgpt.js", "src/platforms/kimi.js", "src/platforms/qwen.js", "src/platforms/qwen-intl.js", "src/platforms/chatglm.js", "src/platforms/zai.js", "src/platforms/doubao.js", "src/sse-interceptor.js"],
       "run_at": "document_start",
       "world": "MAIN"
     },
