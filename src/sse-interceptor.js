@@ -370,7 +370,13 @@
 
       // URL级别去重：同一URL在2秒内只处理一次
       var now = Date.now();
-      var urlKey = url.substring(0, 100);
+      // 只取路径部分进行去重，避免相对路径和绝对路径被视为不同URL
+      var urlPath = url;
+      try {
+        var urlObj = new URL(url, location.origin);
+        urlPath = urlObj.pathname + urlObj.search;
+      } catch(e) {}
+      var urlKey = urlPath.substring(0, 150);
       if (_recentProcessedUrls[urlKey] && (now - _recentProcessedUrls[urlKey]) < DEDUP_WINDOW) {
         _debug.wrapperCalledDuplicate++;
         return baseFetch.apply(this, arguments);

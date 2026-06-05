@@ -136,16 +136,9 @@
       // Kimi 使用 Lexical 编辑器 (contenteditable div)
       // 必须使用 execCommand 模拟真实输入，Lexical 才能检测到
       element.focus();
-      // 先选中所有内容（不清空innerHTML，保持Lexical状态）
-      var sel = window.getSelection();
-      var range = document.createRange();
-      range.selectNodeContents(element);
-      sel.removeAllRanges();
-      sel.addRange(range);
-
-      // 删除选中内容
+      // 先全选并删除
+      document.execCommand('selectAll', false, null);
       document.execCommand('delete', false, null);
-
       // 使用 execCommand 插入文本
       var ok = document.execCommand('insertText', false, value);
 

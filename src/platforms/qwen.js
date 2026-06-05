@@ -8,7 +8,7 @@
     hostPattern: /tongyi\.aliyun\.com|qianwen\.aliyun\.com|qianwen\.com/,
 
     sse: {
-      apiPattern: /chat\/completions|\/api\/v[12]\/chat|chat2-api\.qianwen/,
+      apiPattern: /chat\/completions|\/api\/v[12]\/chat\/completion|chat2-api\.qianwen\.com\/api\/v\d\/chat/,
 
       extractContent: function(chunk) {
         if (!chunk) return null;
@@ -136,15 +136,10 @@
     setInputValue: function(element, value) {
       // 通义千问使用 contenteditable div
       element.focus();
-      // 先选中所有内容
-      var sel = window.getSelection();
-      var range = document.createRange();
-      range.selectNodeContents(element);
-      sel.removeAllRanges();
-      sel.addRange(range);
-      // 删除选中内容
+      // 先全选并删除（使用 Select All + Delete 更可靠）
+      document.execCommand('selectAll', false, null);
       document.execCommand('delete', false, null);
-      // 使用 execCommand 插入文本（React 能检测到）
+      // 短暂延迟后插入文本
       var ok = document.execCommand('insertText', false, value);
       // fallback
       if (!ok || !element.textContent || element.textContent.trim() === '') {
