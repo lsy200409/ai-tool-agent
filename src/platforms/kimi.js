@@ -133,34 +133,39 @@
     },
 
     setInputValue: function(element, value) {
-      // Kimi 使用 Lexical 编辑器，需要特殊处理
+      // Kimi 使用 Lexical 编辑器 (contenteditable div)
+      // 必须使用 execCommand 模拟真实输入，Lexical 才能检测到
       element.focus();
-      try {
-        // 清空现有内容
-        element.innerHTML = '';
-        // 使用 Selection API 插入文本
-        var sel = window.getSelection();
-        var range = document.createRange();
-        range.selectNodeContents(element);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
+      // 清空现有内容
+      element.innerHTML = '';
+      var sel = window.getSelection();
+      var range = document.createRange();
+      range.selectNodeContents(element);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
 
-        // 创建包含换行符的文本节点
-        var lines = value.split('\n');
-        element.innerHTML = '';
-        for (var i = 0; i < lines.length; i++) {
-          if (i > 0) {
-            element.appendChild(document.createElement('br'));
-          }
-          element.appendChild(document.createTextNode(lines[i]));
+      // 使用 execCommand 逐行插入（支持换行）
+      var lines = value.split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        if (i > 0) {
+          // 插入换行
+          document.execCommand('insertLineBreak', false, null);
         }
-      } catch(e) {
-        element.textContent = value;
+        if (lines[i]) {
+          document.execCommand('insertText', false, lines[i]);
+        }
       }
-      // 触发 Lexical 的 input 事件
-      element.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: value }));
-      element.dispatchEvent(new Event('change', { bubbles: true }));
+
+      // 如果 execCommand 不生效（某些浏览器限制），fallback
+      if (!element.textContent || element.textContent.trim() === '') {
+        element.innerHTML = '';
+        for (var j = 0; j < lines.length; j++) {
+          if (j > 0) element.appendChild(document.createElement('br'));
+          element.appendChild(document.createTextNode(lines[j]));
+        }
+        element.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: value }));
+      }
     },
 
     sendMessage: function() {

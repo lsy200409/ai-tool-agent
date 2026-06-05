@@ -8,7 +8,7 @@
     hostPattern: /tongyi\.aliyun\.com|qianwen\.aliyun\.com|qianwen\.com/,
 
     sse: {
-      apiPattern: /chat\/completions|\/api\/v2\/chat/,
+      apiPattern: /chat\/completions|\/api\/v[12]\/chat|chat2-api\.qianwen/,
 
       extractContent: function(chunk) {
         if (!chunk) return null;

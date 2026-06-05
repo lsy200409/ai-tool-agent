@@ -347,6 +347,8 @@
   }
 
   var _origFetch = window.fetch;
+  // 请求去重：防止 fetch 被多次包装导致同一请求被处理多次
+  var _processedRequests = new WeakSet();
 
   function makeFetchWrapper(baseFetch) {
     return function(input, init) {
@@ -369,6 +371,11 @@
       return fetchPromise.then(function(response) {
         if (!response.ok || !response.body) return response;
 
+        // 去重检查：如果这个 response 已经被处理过，直接返回
+        if (_processedRequests.has(response)) {
+          return response;
+        }
+
         var contentType = response.headers.get('content-type') || '';
         // Kimi 使用 application/connect+json，不是 text/event-stream
         var isSSE = contentType.indexOf(SSEContentType) >= 0;
@@ -379,6 +386,9 @@
 
         _streamState.requestCount++;
         _streamState.requestUrl = url;
+
+        // 标记此 response 已处理，防止嵌套 wrapper 重复处理
+        _processedRequests.add(response);
 
         try {
           var teeStreams = response.body.tee();
