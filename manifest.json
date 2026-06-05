@@ -51,6 +51,8 @@
         "https://www.qianwen.com/*",
         "https://qianwen.com/*",
         "https://chatglm.cn/*",
+        "https://chat.z.ai/*",
+        "https://z.ai/*",
         "https://www.doubao.com/*",
         "https://doubao.com/*"
       ],
@@ -73,6 +75,8 @@
         "https://www.qianwen.com/*",
         "https://qianwen.com/*",
         "https://chatglm.cn/*",
+        "https://chat.z.ai/*",
+        "https://z.ai/*",
         "https://www.doubao.com/*",
         "https://doubao.com/*"
       ],
@@ -91,6 +95,7 @@
         "src/platforms/qwen.js",
         "src/platforms/qwen-intl.js",
         "src/platforms/chatglm.js",
+        "src/platforms/zai.js",
         "src/platforms/doubao.js",
         "src/dom/input.js",
         "src/dom/ai-message.js",
@@ -126,6 +131,8 @@
         "https://www.qianwen.com/*",
         "https://qianwen.com/*",
         "https://chatglm.cn/*",
+        "https://chat.z.ai/*",
+        "https://z.ai/*",
         "https://www.doubao.com/*",
         "https://doubao.com/*"
       ]
