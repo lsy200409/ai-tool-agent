@@ -381,6 +381,23 @@
         var isSSE = contentType.indexOf(SSEContentType) >= 0;
         var isBinaryStream = sseConfig && sseConfig.binaryStream &&
                              (contentType.indexOf('application/connect') >= 0 || contentType.indexOf('application/grpc') >= 0);
+        // 对于二进制流平台，如果 URL 匹配但 content-type 未知，也尝试解析
+        if (!isSSE && !isBinaryStream && sseConfig && sseConfig.binaryStream) {
+          isBinaryStream = true; // 信任 apiPattern 匹配结果
+        }
+
+        // 调试：记录匹配请求的 content-type
+        if (_debug.streamEvents.length < 200) {
+          _debug.streamEvents.push({
+            type: 'fetch_match',
+            url: url.substring(0, 80),
+            contentType: contentType,
+            isSSE: isSSE,
+            isBinaryStream: isBinaryStream,
+            hasBody: !!response.body,
+            ts: Date.now()
+          });
+        }
 
         if (!isSSE && !isBinaryStream) return response;
 
