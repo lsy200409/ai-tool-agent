@@ -134,29 +134,29 @@
     },
 
     setInputValue: function(element, value) {
-      // 通义千问也是 contenteditable div
+      // 通义千问使用 contenteditable div
       element.focus();
-      try {
-        // 使用 Range + Selection 插入文本，模拟用户输入
-        var sel = window.getSelection();
-        var range = document.createRange();
-        range.selectNodeContents(element);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
-        // 直接清空 innerHTML
+      // 先选中所有内容
+      var sel = window.getSelection();
+      var range = document.createRange();
+      range.selectNodeContents(element);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      // 删除选中内容
+      document.execCommand('delete', false, null);
+      // 使用 execCommand 插入文本（React 能检测到）
+      var ok = document.execCommand('insertText', false, value);
+      // fallback
+      if (!ok || !element.textContent || element.textContent.trim() === '') {
         element.innerHTML = '';
-        // 把多行文本转为 <br> 分割
         var lines = value.split('\n');
         for (var i = 0; i < lines.length; i++) {
           if (i > 0) element.appendChild(document.createElement('br'));
           element.appendChild(document.createTextNode(lines[i]));
         }
-      } catch(e) {
-        element.textContent = value;
+        element.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: value }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
       }
-      element.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: value }));
-      element.dispatchEvent(new Event('change', { bubbles: true }));
     },
 
     sendMessage: function() {

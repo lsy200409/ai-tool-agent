@@ -15,26 +15,32 @@
         // Samantha 格式: event_type=2001
         if (chunk.event_type === 2001 && chunk.event_data) {
           try {
-            var eventData = JSON.parse(chunk.event_data);
+            var eventData = typeof chunk.event_data === 'string' ? JSON.parse(chunk.event_data) : chunk.event_data;
             if (eventData.message && eventData.message.content) {
               try {
-                var content = JSON.parse(eventData.message.content);
+                var content = typeof eventData.message.content === 'string' ? JSON.parse(eventData.message.content) : eventData.message.content;
                 if (content.text) return content.text;
+                if (typeof content === 'string') return content;
               } catch(e) {
                 return eventData.message.content;
               }
             }
           } catch(e) {}
         }
-        // SSE event 格式
+        // SSE event 格式 - chunk.text 是增量文本
         if (chunk.text) return chunk.text;
+        // patch_op 格式 - tts_content 可能是完整文本
         if (chunk.patch_op) {
           for (var i = 0; i < chunk.patch_op.length; i++) {
-            if (chunk.patch_op[i].patch_value && chunk.patch_op[i].patch_value.tts_content) {
-              return chunk.patch_op[i].patch_value.tts_content;
+            if (chunk.patch_op[i].patch_value) {
+              var pv = chunk.patch_op[i].patch_value;
+              // 优先用 text_content，其次 tts_content
+              if (pv.text_content) return pv.text_content;
+              if (pv.tts_content) return pv.tts_content;
             }
           }
         }
+        // content_block 格式
         if (chunk.content && chunk.content.content_block) {
           var texts = [];
           for (var j = 0; j < chunk.content.content_block.length; j++) {
@@ -45,6 +51,9 @@
           }
           if (texts.length > 0) return texts.join('');
         }
+        // 备选字段
+        if (chunk.content && typeof chunk.content === 'string') return chunk.content;
+        if (chunk.delta) return chunk.delta;
         return null;
       },
 

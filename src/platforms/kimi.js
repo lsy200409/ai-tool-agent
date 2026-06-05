@@ -136,30 +136,23 @@
       // Kimi 使用 Lexical 编辑器 (contenteditable div)
       // 必须使用 execCommand 模拟真实输入，Lexical 才能检测到
       element.focus();
-      // 清空现有内容
-      element.innerHTML = '';
+      // 先选中所有内容（不清空innerHTML，保持Lexical状态）
       var sel = window.getSelection();
       var range = document.createRange();
       range.selectNodeContents(element);
-      range.collapse(false);
       sel.removeAllRanges();
       sel.addRange(range);
 
-      // 使用 execCommand 逐行插入（支持换行）
-      var lines = value.split('\n');
-      for (var i = 0; i < lines.length; i++) {
-        if (i > 0) {
-          // 插入换行
-          document.execCommand('insertLineBreak', false, null);
-        }
-        if (lines[i]) {
-          document.execCommand('insertText', false, lines[i]);
-        }
-      }
+      // 删除选中内容
+      document.execCommand('delete', false, null);
 
-      // 如果 execCommand 不生效（某些浏览器限制），fallback
-      if (!element.textContent || element.textContent.trim() === '') {
+      // 使用 execCommand 插入文本
+      var ok = document.execCommand('insertText', false, value);
+
+      // 如果 execCommand 不生效，fallback
+      if (!ok || !element.textContent || element.textContent.trim() === '') {
         element.innerHTML = '';
+        var lines = value.split('\n');
         for (var j = 0; j < lines.length; j++) {
           if (j > 0) element.appendChild(document.createElement('br'));
           element.appendChild(document.createTextNode(lines[j]));
