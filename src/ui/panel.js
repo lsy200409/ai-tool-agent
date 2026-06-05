@@ -1,5 +1,5 @@
 // ============================================================
-// DeepSeek Tool Agent v2.6 — Panel UI (Chromium-native styling)
+// AI Tool Agent v3.0 — Panel UI (Chromium-native styling)
 // Design tokens from chromium-ui-react (--cr-* variables)
 // Layout: dual-column (Tools&Skills | Live Logs) + bottom bar
 // Pure vanilla JS — no framework dependency
@@ -65,19 +65,33 @@ function injectPanelHTML() {
   document.body.appendChild(overlay);
 
   bindPanelEvents();
+
+  // 设置平台徽章
+  var platformBadge = document.getElementById('__ds-platform-badge');
+  if (platformBadge) {
+    var p = getPlatform();
+    if (p) {
+      platformBadge.textContent = p.name || p.id;
+      platformBadge.title = 'Platform: ' + (p.name || p.id);
+    } else {
+      platformBadge.textContent = '?';
+      platformBadge.title = 'Unknown platform';
+    }
+  }
 }
 
 function buildPanelHTML() {
   return [
     '<div id="__ds-header">',
     '  <div id="__ds-header-left">',
-    '    <span id="__ds-logo" class="ds-logo">[DS]</span>',
-    '    <span id="__ds-title">Agent</span>',
-    '    <span id="__ds-version">v2.6</span>',
+    '    <span id="__ds-logo" class="ds-logo">[AI]</span>',
+    '    <span id="__ds-title">Tool Agent</span>',
+    '    <span id="__ds-version">v3.0</span>',
     '  </div>',
     '  <div id="__ds-status">',
     '    <span id="__ds-dot"></span>',
     '    <span id="__ds-status-text">Checking...</span>',
+    '    <span id="__ds-platform-badge" class="ds-sse-badge" title="Current AI Platform" style="background:#6366f1;color:#fff;">--</span>',
     '    <span id="__ds-sse-badge" class="ds-sse-badge" title="SSE Stream Intercept Mode">SSE</span>',
     '  </div>',
     '  <div id="__ds-header-btns">',

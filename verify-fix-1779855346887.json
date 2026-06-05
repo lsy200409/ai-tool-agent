@@ -1,0 +1,66 @@
+{
+  "startTime": "2026-05-27T04:15:46.887Z",
+  "duration": 50227,
+  "eventCount": 5,
+  "events": [
+    {
+      "time": 365,
+      "type": "connected",
+      "data": {
+        "url": "https://chat.deepseek.com/"
+      }
+    },
+    {
+      "time": 8388,
+      "type": "check_state",
+      "data": {
+        "url": "https://chat.deepseek.com/",
+        "sseInterceptorReady": true,
+        "hasStreamState": true,
+        "hasIsStreamActive": true,
+        "hasGetStreamText": true,
+        "fetchIsWrapped": true,
+        "fetchHasTee": true,
+        "fetchLen": 1011,
+        "injectedAlive": true,
+        "streamState": {
+          "active": false,
+          "accumulatedText": "",
+          "lastChunkTime": 0,
+          "finishReason": null,
+          "requestCount": 0,
+          "requestUrl": ""
+        }
+      }
+    },
+    {
+      "time": 8766,
+      "type": "input_set",
+      "data": {
+        "text": "你好，请计算 123+456"
+      }
+    },
+    {
+      "time": 9822,
+      "type": "send",
+      "data": {
+        "clicked": false,
+        "fallback": "enter",
+        "best": null
+      }
+    },
+    {
+      "time": 50225,
+      "type": "final_state",
+      "data": {
+        "streamActive": false,
+        "reqCount": 0,
+        "reqUrl": "",
+        "accumulatedLen": 0,
+        "finishReason": null,
+        "sseInterceptorReady": true,
+        "fetchLen": 1011
+      }
+    }
+  ]
+}

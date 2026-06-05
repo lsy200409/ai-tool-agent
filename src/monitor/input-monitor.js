@@ -411,6 +411,36 @@ MONITOR.parser = {
 };
 
 // ============================================================
+// 共享函数: countUserMessages / getLatestUserText
+// (从 IIFE 中提取到全局，供 MONITOR.observer.start/stop 使用)
+// ============================================================
+function countUserMessages() {
+  var all = document.querySelectorAll('div.ds-message');
+  var count = 0;
+  for (var i = 0; i < all.length; i++) {
+    if (!all[i].querySelector('.ds-assistant-message-main-content')) {
+      var txt = (all[i].innerText || all[i].textContent || '').trim();
+      if (txt.indexOf('<tool_response') >= 0) continue;
+      if (txt.indexOf('原始任务:') >= 0) continue;
+      if (txt.indexOf('正在思考') === 0) continue;
+      if (txt.length > 0) count++;
+    }
+  }
+  return count;
+}
+
+function getLatestUserText() {
+  try {
+    return typeof getLatestUserMessageText === 'function'
+      ? getLatestUserMessageText()
+      : '';
+  } catch(e) { return ''; }
+}
+
+var _monitorStartMsgCount = 0;
+var _lastDetectedUserText = '';
+
+// ============================================================
 // Layer 1: DOM Observer + State Machine
 // ============================================================
 MONITOR.observer = {
@@ -834,7 +864,7 @@ console.log('[Monitor] 输入监控模块已加载 (v2.6 SSE模式)');
 // ============================================================
 window.addEventListener('message', function(event) {
   if (!event.data || typeof event.data !== 'object') return;
-  if (event.data.source !== 'deepseek-tool-agent') return;
+  if (event.data.source !== 'ai-tool-agent' && event.data.source !== 'deepseek-tool-agent') return;
 
   switch (event.data.type) {
     case '__ds_stream_start':
@@ -951,31 +981,8 @@ window.addEventListener('message', function(event) {
 (function() {
   var lastUserMsgCount = 0;
 
-  var _lastDetectedUserText = '';
-  var _monitorStartMsgCount = 0;
-
-  function countUserMessages() {
-    var all = document.querySelectorAll('div.ds-message');
-    var count = 0;
-    for (var i = 0; i < all.length; i++) {
-      if (!all[i].querySelector('.ds-assistant-message-main-content')) {
-        var txt = (all[i].innerText || all[i].textContent || '').trim();
-        if (txt.indexOf('<tool_response') >= 0) continue;
-        if (txt.indexOf('原始任务:') >= 0) continue;
-        if (txt.indexOf('正在思考') === 0) continue;
-        if (txt.length > 0) count++;
-      }
-    }
-    return count;
-  }
-
-  function getLatestUserText() {
-    try {
-      return typeof getLatestUserMessageText === 'function'
-        ? getLatestUserMessageText()
-        : '';
-    } catch(e) { return ''; }
-  }
+  // countUserMessages, getLatestUserText, _lastDetectedUserText, _monitorStartMsgCount
+  // 已提取到全局作用域，此处直接使用全局变量
 
   function checkForNewUserMessage() {
     if (MONITOR.state !== 'idle') {

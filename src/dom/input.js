@@ -1,11 +1,25 @@
+// 获取当前平台适配器
+function getPlatform() {
+  return (typeof PlatformRegistry !== 'undefined' && PlatformRegistry.getCurrent()) || null;
+}
+
 function findChatInput() {
-  var selectors = [
-    'textarea[name="search"]', 'textarea[placeholder*="DeepSeek"]',
-    'textarea[placeholder*="发送"]', 'textarea[placeholder*="给"]',
-    'textarea._27c9245', 'textarea[class*="ds-scroll-area"]',
-    'textarea.ds-textarea', 'textarea:not([hidden])',
-    'div[contenteditable="true"]', '[role="textbox"]'
-  ];
+  var platform = getPlatform();
+  var selectors = platform && platform.dom && platform.dom.chatInputSelectors.length > 0
+    ? platform.dom.chatInputSelectors
+    : [
+      // 通用 fallback 选择器
+      'textarea[name="search"]',
+      'textarea[placeholder*="DeepSeek"]',
+      'textarea[placeholder*="发送"]',
+      'textarea[placeholder*="给"]',
+      'textarea[placeholder*="输入"]',
+      '#prompt-textarea',
+      'textarea:not([hidden])',
+      'div[contenteditable="true"]',
+      '[role="textbox"]'
+    ];
+
   for (var i = 0; i < selectors.length; i++) {
     var els = document.querySelectorAll(selectors[i]);
     for (var j = 0; j < els.length; j++) {
@@ -20,6 +34,13 @@ function findChatInput() {
 }
 
 function setInputValue(element, value) {
+  var platform = getPlatform();
+  if (platform && platform.setInputValue) {
+    platform.setInputValue(element, value);
+    return;
+  }
+
+  // 通用 fallback
   element.focus();
   try { element.value = ''; } catch(e) {}
   try { document.execCommand('selectAll'); } catch(e) {}
@@ -34,28 +55,30 @@ function setInputValue(element, value) {
 }
 
 function findSendButton() {
-  // 优先查找 DeepSeek 的 primary 发送按钮
-  var primaryBtns = document.querySelectorAll('div[role="button"].ds-button--primary, div[role="button"][class*="ds-button--primary"]');
-  for (var p = 0; p < primaryBtns.length; p++) {
-    var pb = primaryBtns[p];
-    if (pb.clientHeight > 0 && pb.offsetParent !== null) {
-      pb.setAttribute('data-ds-send-btn', 'primary');
-      return pb;
-    }
+  var platform = getPlatform();
+
+  // 优先使用平台特定的 findSendButton
+  if (platform && platform.dom && platform.dom.findSendButton) {
+    var btn = platform.dom.findSendButton();
+    if (btn) return btn;
   }
 
+  // 通用 fallback
   var all = document.querySelectorAll('[role="button"],button');
   for (var i = 0; i < all.length; i++) {
     var b = all[i];
+    if (b.clientHeight <= 0 || b.offsetParent === null) continue;
     var html = (b.innerHTML || '').toLowerCase();
-    if (html.indexOf(ARROW_SVG_PATH) >= 0) { b.setAttribute('data-ds-send-btn', 'arrow'); return b; }
+    // DeepSeek SVG 箭头
+    if (html.indexOf('m8.3125') >= 0) { b.setAttribute('data-ds-send-btn', 'arrow'); return b; }
     if (html.indexOf('<rect') >= 0) { b.setAttribute('data-ds-send-btn', 'stop'); return b; }
   }
+
+  // 输入框附近查找
   var input = findChatInput();
   if (input) {
-    var walk = input;
+    var walk = input.parentElement;
     for (var k = 0; k < 5; k++) {
-      walk = walk.parentElement;
       if (!walk) break;
       var btns = walk.querySelectorAll('button, [role="button"]');
       for (var j = 0; j < btns.length; j++) {
@@ -65,12 +88,19 @@ function findSendButton() {
           return b2;
         }
       }
+      walk = walk.parentElement;
     }
   }
   return null;
 }
 
 function clickSendButton() {
+  var platform = getPlatform();
+  if (platform && platform.sendMessage) {
+    var result = platform.sendMessage();
+    if (result) return true;
+  }
+
   var btn = findSendButton();
   if (!btn || btn.getAttribute('aria-disabled') === 'true' || btn.disabled) {
     return pressEnterToSend();

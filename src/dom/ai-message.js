@@ -1,6 +1,15 @@
 var __streamingCache = { ts: 0, result: false, prevIsArrow: true, justReturnedToArrow: false };
 
 function detectStreaming() {
+  var platform = getPlatform();
+
+  // 优先使用平台特定的 detectStreaming
+  if (platform && platform.dom && platform.dom.detectStreaming) {
+    var result = platform.dom.detectStreaming();
+    if (result !== null && result !== undefined) return result;
+  }
+
+  // Fallback: 通过发送按钮状态检测
   var now = Date.now();
   if (now - __streamingCache.ts < 300) return __streamingCache.result;
   var btn = findSendButton();
@@ -8,7 +17,7 @@ function detectStreaming() {
     __streamingCache = { ts: now, result: false, prevIsArrow: false, justReturnedToArrow: false };
     return false;
   }
-  var isArrow = (btn.innerHTML || '').toLowerCase().indexOf(ARROW_SVG_PATH) >= 0;
+  var isArrow = (btn.innerHTML || '').toLowerCase().indexOf('m8.3125') >= 0;
   var wasArrow = __streamingCache.prevIsArrow;
   var justReturned = (wasArrow === false && isArrow === true);
   __streamingCache = { ts: now, result: !isArrow, prevIsArrow: isArrow, justReturnedToArrow: justReturned };
@@ -20,12 +29,21 @@ function wasSendButtonJustReturnedToArrow() {
 }
 
 function getLatestAIMessageText() {
-  var els = document.querySelectorAll('div.ds-assistant-message-main-content');
+  var platform = getPlatform();
+  var selectors = platform && platform.dom && platform.dom.aiMessageSelectors.length > 0
+    ? platform.dom.aiMessageSelectors
+    : ['div.ds-assistant-message-main-content']; // DeepSeek fallback
+
+  var thinkSelector = platform && platform.dom && platform.dom.thinkContentSelector
+    ? platform.dom.thinkContentSelector
+    : '.ds-think-content';
+
+  var els = document.querySelectorAll(selectors.join(','));
   var candidates = [];
 
   for (var i = 0; i < els.length; i++) {
     var el = els[i];
-    if (el.closest('.ds-think-content')) continue;
+    if (thinkSelector && el.closest(thinkSelector)) continue;
     var txt = (el.innerText || el.textContent || '').trim();
     if (txt.indexOf('## 环境') >= 0 || txt.indexOf('## 可用工具') >= 0) continue;
     if (txt.length > 0) candidates.push({ txt: txt, idx: i });
@@ -55,11 +73,24 @@ function getLatestAIMessageText() {
 }
 
 function getLatestUserMessageText() {
-  var all = document.querySelectorAll('div.ds-message');
+  var platform = getPlatform();
+  var userSelector = platform && platform.dom && platform.dom.userMessageSelector
+    ? platform.dom.userMessageSelector
+    : 'div.ds-message';
+
+  var thinkSelector = platform && platform.dom && platform.dom.thinkContentSelector
+    ? platform.dom.thinkContentSelector
+    : '.ds-think-content';
+
+  var isUserMsg = platform && platform.dom && platform.dom.isUserMessage
+    ? platform.dom.isUserMessage
+    : function(el) { return !el.querySelector('.ds-assistant-message-main-content'); };
+
+  var all = document.querySelectorAll(userSelector);
   var last = '';
   for (var i = 0; i < all.length; i++) {
-    if (!all[i].querySelector('.ds-assistant-message-main-content')) {
-      if (all[i].querySelector('.ds-think-content')) continue;
+    if (isUserMsg(all[i])) {
+      if (thinkSelector && all[i].querySelector(thinkSelector)) continue;
       var txt = (all[i].innerText || all[i].textContent || '').trim();
       if (txt.indexOf('<tool_response') >= 0) continue;
       if (txt.indexOf('原始任务:') >= 0) continue;
@@ -79,7 +110,6 @@ function aiAlreadyRepliedAfterToolCall() {
     return false;
   }
 
-  // 检查最后一个 </tool_call> 之后是否有内容
   var closeIdx = latestMsg.lastIndexOf('</tool_call>');
   if (closeIdx < 0) {
     logPanel('info', '  → 无 </tool_call> 标签，未自行回复');

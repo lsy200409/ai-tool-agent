@@ -570,7 +570,7 @@
     if (data.type === '__ds_heartbeat_injected') {
       var ss = window.__ds_streamState ? window.__ds_streamState() : { active: false };
       window.postMessage({
-        source: 'deepseek-tool-agent',
+        source: 'ai-tool-agent',
         type: '__ds_heartbeat_injected_ack',
         alive: true,
         streamActive: ss.active,
