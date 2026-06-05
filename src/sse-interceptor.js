@@ -26,6 +26,7 @@
     wrapperCalledTotal: 0,
     wrapperCalledMatchingUrl: 0,
     wrapperCalledNonMatching: 0,
+    wrapperCalledDuplicate: 0,
     setterCalledTotal: 0,
     getterCalledTotal: 0,
     urlsSeen: [],
@@ -349,6 +350,9 @@
   var _origFetch = window.fetch;
   // 请求去重：防止 fetch 被多次包装导致同一请求被处理多次
   var _processedRequests = new WeakSet();
+  // URL级别去重：同一URL在短时间内只处理一次
+  var _recentProcessedUrls = {};
+  var DEDUP_WINDOW = 2000; // 2秒去重窗口
 
   function makeFetchWrapper(baseFetch) {
     return function(input, init) {
@@ -362,6 +366,22 @@
       if (!DS_API_PATTERN.test(url)) {
         _debug.wrapperCalledNonMatching++;
         return baseFetch.apply(this, arguments);
+      }
+
+      // URL级别去重：同一URL在2秒内只处理一次
+      var now = Date.now();
+      var urlKey = url.substring(0, 100);
+      if (_recentProcessedUrls[urlKey] && (now - _recentProcessedUrls[urlKey]) < DEDUP_WINDOW) {
+        _debug.wrapperCalledDuplicate++;
+        return baseFetch.apply(this, arguments);
+      }
+      _recentProcessedUrls[urlKey] = now;
+      // 清理过期的去重记录
+      var keys = Object.keys(_recentProcessedUrls);
+      for (var ki = 0; ki < keys.length; ki++) {
+        if (now - _recentProcessedUrls[keys[ki]] > DEDUP_WINDOW * 2) {
+          delete _recentProcessedUrls[keys[ki]];
+        }
       }
 
       _debug.wrapperCalledMatchingUrl++;
@@ -445,6 +465,72 @@
   window.__ds_streamState = function() { return _streamState; };
   window.__ds_isStreamActive = function() { return _streamState.active; };
   window.__ds_getStreamText = function() { return _streamState.accumulatedText; };
+
+  // ========== EventSource 拦截 ==========
+  // 某些平台（如通义千问）使用 EventSource API 接收 SSE 流
+  var _origEventSource = window.EventSource;
+  if (_origEventSource) {
+    window.EventSource = function(url, config) {
+      _debug.esCreated = (_debug.esCreated || 0) + 1;
+      var esUrl = typeof url === 'string' ? url : '';
+      _debug.esUrls = _debug.esUrls || [];
+      _debug.esUrls.push(esUrl.substring(0, 100));
+
+      var isChatApi = DS_API_PATTERN.test(esUrl);
+      var es = new _origEventSource(url, config);
+
+      if (isChatApi) {
+        _debug.esMatched = (_debug.esMatched || 0) + 1;
+        _streamState.active = true;
+        _streamState.requestCount++;
+        _streamState.requestUrl = esUrl;
+        _streamState.accumulatedText = '';
+        _streamState.finishReason = null;
+        _streamState.lastChunkTime = Date.now();
+
+        es.addEventListener('message', function(event) {
+          try {
+            var chunk = JSON.parse(event.data);
+            var content = sseConfig && sseConfig.extractContent ? sseConfig.extractContent(chunk) : null;
+            if (content) {
+              if (sseConfig && sseConfig.cumulativeContent) {
+                _streamState.accumulatedText = content;
+              } else {
+                _streamState.accumulatedText += content;
+              }
+              _streamState.lastChunkTime = Date.now();
+
+              if (_debug.streamEvents.length < 200) {
+                _debug.streamEvents.push({
+                  type: 'es_content',
+                  contentLen: content.length,
+                  totalLen: _streamState.accumulatedText.length,
+                  contentPreview: content.substring(0, 50),
+                  ts: Date.now()
+                });
+              }
+            }
+            // 检测流结束
+            var finish = sseConfig && sseConfig.detectStreamEnd ? sseConfig.detectStreamEnd(chunk) : null;
+            if (finish) {
+              _streamState.finishReason = finish;
+              _streamState.active = false;
+            }
+          } catch(e) {}
+        });
+
+        es.addEventListener('error', function() {
+          _streamState.active = false;
+        });
+      }
+
+      return es;
+    };
+    window.EventSource.prototype = _origEventSource.prototype;
+    window.EventSource.CONNECTING = _origEventSource.CONNECTING;
+    window.EventSource.OPEN = _origEventSource.OPEN;
+    window.EventSource.CLOSED = _origEventSource.CLOSED;
+  }
 
   // Bridge: receive monitor state from ISOLATED world via postMessage
   window.__ds_monitorState = { state: 'unknown', autoWatch: false, toolCalls: 0 };
