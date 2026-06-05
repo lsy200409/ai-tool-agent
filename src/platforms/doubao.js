@@ -8,7 +8,7 @@
     hostPattern: /doubao\.com/,
 
     sse: {
-      apiPattern: /samantha\/chat\/completion|\/chat\/completion/,
+      apiPattern: /samantha\/chat|\/chat\/completion/,
 
       extractContent: function(chunk) {
         if (!chunk) return null;
@@ -75,8 +75,54 @@
       ],
 
       findSendButton: function() {
-        // 豆包：发送按钮在 textarea 父级的下方
-        // 优先查找 .send-button / [class*="send-btn"] / [aria-label*="发送"] / [aria-label*="send"]
+        // 豆包：发送按钮在 textarea 父级内
+        // 特征：不含文字、含 SVG、class 含 bg-dbx-text-highlight、非 dropdown-menu-trigger
+        var ta = document.querySelector('textarea.semi-input-textarea');
+        if (ta) {
+          var walk = ta.parentElement;
+          for (var k = 0; k < 8; k++) {
+            if (!walk) break;
+            var btns = walk.querySelectorAll('button');
+            for (var j = 0; j < btns.length; j++) {
+              var b = btns[j];
+              if (b.clientHeight === 0) continue;
+              // 排除下拉菜单触发器
+              if (b.getAttribute('data-slot') === 'dropdown-menu-trigger') continue;
+              if (b.getAttribute('aria-haspopup')) continue;
+              // 排除有文字的按钮（功能按钮如"编程"、"翻译"等）
+              if (b.textContent.trim().length > 0) continue;
+              // 发送按钮特征：含 SVG 且 class 含 highlight
+              if (b.querySelector('svg')) {
+                var cls = typeof b.className === 'string' ? b.className : '';
+                if (cls.indexOf('highlight') >= 0) {
+                  b.setAttribute('data-ds-send-btn', 'doubao-highlight');
+                  return b;
+                }
+              }
+            }
+            walk = walk.parentElement;
+          }
+          // 备选：找仅含 SVG 且无文字无 aria-haspopup 的 button
+          walk = ta.parentElement;
+          for (var m = 0; m < 8; m++) {
+            if (!walk) break;
+            var btns2 = walk.querySelectorAll('button');
+            for (var n = 0; n < btns2.length; n++) {
+              var b2 = btns2[n];
+              if (b2.clientHeight === 0) continue;
+              if (b2.getAttribute('data-slot') === 'dropdown-menu-trigger') continue;
+              if (b2.getAttribute('aria-haspopup')) continue;
+              if (b2.textContent.trim().length > 0) continue;
+              if (b2.querySelector('svg')) {
+                b2.setAttribute('data-ds-send-btn', 'doubao-svg-fallback');
+                return b2;
+              }
+            }
+            walk = walk.parentElement;
+          }
+        }
+
+        // 通用选择器
         var sendSelectors = [
           '[class*="send-button"]',
           '[class*="send-btn"]',
@@ -88,46 +134,6 @@
           var els = document.querySelectorAll(sendSelectors[s]);
           for (var i = 0; i < els.length; i++) {
             if (els[i].clientHeight > 0) return els[i];
-          }
-        }
-
-        // 豆包发送按钮特征：textarea 父级内，含 SVG 上箭头图标的 button
-        // SVG path: M12.0005 2.25C12.5528 2.25... (上箭头发送图标)
-        var ta = document.querySelector('textarea.semi-input-textarea');
-        if (ta) {
-          var walk = ta.parentElement;
-          for (var k = 0; k < 6; k++) {
-            if (!walk) break;
-            var btns = walk.querySelectorAll('button');
-            for (var j = 0; j < btns.length; j++) {
-              var b = btns[j];
-              if (b.clientHeight > 0 && b.querySelector('svg')) {
-                var svgHtml = b.innerHTML || '';
-                // 发送按钮的 SVG 含有上箭头路径特征
-                if (svgHtml.indexOf('M12.0005') >= 0 || svgHtml.indexOf('2.25C12.5528') >= 0) {
-                  b.setAttribute('data-ds-send-btn', 'doubao-arrow');
-                  return b;
-                }
-              }
-            }
-            walk = walk.parentElement;
-          }
-        }
-
-        // 备选：textarea 父级 3 层内找仅含 svg 的 button (排除含文字的)
-        if (ta) {
-          var walk2 = ta.parentElement;
-          for (var m = 0; m < 5; m++) {
-            if (!walk2) break;
-            var btns2 = walk2.querySelectorAll('button');
-            for (var n = 0; n < btns2.length; n++) {
-              var b2 = btns2[n];
-              if (b2.clientHeight > 0 && b2.querySelector('svg') && b2.textContent.trim() === '') {
-                b2.setAttribute('data-ds-send-btn', 'doubao-svg-only');
-                return b2;
-              }
-            }
-            walk2 = walk2.parentElement;
           }
         }
         return null;
@@ -161,14 +167,22 @@
     },
 
     setInputValue: function(element, value) {
-      // 豆包使用 textarea
+      // 豆包使用 textarea (Semi Design)
       element.focus();
+      // 先清空
+      element.select();
+      document.execCommand('delete', false, null);
+      // 使用 execCommand 模拟真实输入（React/Semi Design 能检测到）
+      if (document.execCommand('insertText', false, value)) {
+        return;
+      }
+      // fallback: 原生 setter + InputEvent
       try {
         var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
         if (setter && setter.set) setter.set.call(element, value);
         else element.value = value;
       } catch(e) { element.value = value; }
-      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: value }));
       element.dispatchEvent(new Event('change', { bubbles: true }));
     },
 

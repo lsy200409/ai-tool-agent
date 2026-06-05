@@ -10,7 +10,7 @@
 
     sse: {
       // Qwen 国际版使用标准 OpenAI 兼容格式
-      apiPattern: /chat\/completions/,
+      apiPattern: /\/api\/v2\/chat\/completions|chat\/completions/,
 
       extractContent: function(chunk) {
         if (!chunk) return null;
@@ -52,16 +52,26 @@
       ],
 
       findSendButton: function() {
-        // Qwen国际版：.message-input-right-button-send
-        var sendBtn = document.querySelector('.message-input-right-button-send');
+        // Qwen国际版：内层 button.send-button
+        var sendBtn = document.querySelector('button.send-button');
         if (sendBtn && sendBtn.clientHeight > 0) {
+          sendBtn.setAttribute('data-ds-send-btn', 'qwen-intl-send-btn');
+          return sendBtn;
+        }
+        // 外层 div
+        sendBtn = document.querySelector('.message-input-right-button-send');
+        if (sendBtn && sendBtn.clientHeight > 0) {
+          // 优先返回内层 button
+          var innerBtn = sendBtn.querySelector('button');
+          if (innerBtn && innerBtn.clientHeight > 0) return innerBtn;
           sendBtn.setAttribute('data-ds-send-btn', 'qwen-intl-send');
           return sendBtn;
         }
-        // 备选：.message-input-right-button
+        // 备选
         sendBtn = document.querySelector('.message-input-right-button');
         if (sendBtn && sendBtn.clientHeight > 0) {
-          sendBtn.setAttribute('data-ds-send-btn', 'qwen-intl-right');
+          var innerBtn2 = sendBtn.querySelector('button');
+          if (innerBtn2 && innerBtn2.clientHeight > 0) return innerBtn2;
           return sendBtn;
         }
         // 备选：含 send 字样的button
@@ -102,12 +112,20 @@
 
     setInputValue: function(element, value) {
       element.focus();
+      // 先清空
+      element.select();
+      document.execCommand('delete', false, null);
+      // 使用 execCommand 模拟真实输入（React 能检测到）
+      if (document.execCommand('insertText', false, value)) {
+        return;
+      }
+      // fallback: 原生 setter + InputEvent
       try {
         var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
         if (setter && setter.set) setter.set.call(element, value);
         else element.value = value;
       } catch(e) { element.value = value; }
-      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: value }));
       element.dispatchEvent(new Event('change', { bubbles: true }));
     },
 
