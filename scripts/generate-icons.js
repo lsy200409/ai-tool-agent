@@ -108,6 +108,35 @@ function generatePurePNG() {
     console.log('Generated: ' + outPath + ' (' + png.length + ' bytes)');
   });
 
+  // 生成商店图标 300x300
+  var storeSize = 300;
+  var storePixels = Buffer.alloc(storeSize * storeSize * 4);
+  for (var y = 0; y < storeSize; y++) {
+    for (var x = 0; x < storeSize; x++) {
+      var idx = (y * storeSize + x) * 4;
+      var t = (x + y) / (2 * storeSize);
+      var r = Math.round(102 + t * (118 - 102));
+      var g = Math.round(126 + t * (75 - 126));
+      var b = Math.round(234 + t * (162 - 234));
+      var radius = storeSize * 0.1875;
+      var inRect = true;
+      var corners = [[radius, radius], [storeSize - radius, radius], [radius, storeSize - radius], [storeSize - radius, storeSize - radius]];
+      for (var c = 0; c < 4; c++) {
+        var cx = corners[c][0], cy = corners[c][1];
+        if ((x < radius || x >= storeSize - radius) && (y < radius || y >= storeSize - radius)) {
+          var dx = x - cx, dy = y - cy;
+          if (dx * dx + dy * dy > radius * radius) { inRect = false; break; }
+        }
+      }
+      if (inRect) { storePixels[idx] = r; storePixels[idx+1] = g; storePixels[idx+2] = b; storePixels[idx+3] = 255; }
+      else { storePixels[idx] = 0; storePixels[idx+1] = 0; storePixels[idx+2] = 0; storePixels[idx+3] = 0; }
+    }
+  }
+  drawText(storePixels, storeSize, 'AT', 0.4);
+  var storePng = encodePNG(storePixels, storeSize, storeSize);
+  fs.writeFileSync(path.join(outDir, 'icon300.png'), storePng);
+  console.log('Generated: icon300.png (' + storePng.length + ' bytes)');
+
   console.log('Done!');
 }
 
