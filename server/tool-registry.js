@@ -70,13 +70,13 @@ function buildBuiltinTools(ctx) {
       execute: async (_toolCallId, args) => {
         const filePath = resolvePath(args.path, wsDir);
 
-        // 路径安全检查
+        // 路径安全检查（NEVER_ALLOW + FORBIDDEN — 任何权限都无法绕过）
         const forbidden = isForbiddenPath(filePath);
         if (forbidden) {
-          return jsonResult({ success: true, blocked: true, reason: '禁止读取: ' + forbidden.reason, path: filePath });
+          return jsonResult({ success: true, blocked: true, reason: '禁止读取: ' + forbidden.reason, path: filePath, neverAllow: true });
         }
 
-        // workspace 外的路径需要确认
+        // workspace 外的路径需要确认（可被 globalPermissions 绕过）
         if (isOutsideWorkspace(filePath, wsDir) && !ctx.globalPermissions && !ctx._confirmed) {
           const sensitive = isSensitivePath(filePath);
           return jsonResult({
@@ -112,13 +112,13 @@ function buildBuiltinTools(ctx) {
       execute: async (_toolCallId, args) => {
         const filePath = resolvePath(args.path, wsDir);
 
-        // 路径安全检查
+        // 路径安全检查（NEVER_ALLOW + FORBIDDEN — 任何权限都无法绕过）
         const forbidden = isForbiddenPath(filePath);
         if (forbidden) {
-          return jsonResult({ success: true, blocked: true, reason: '禁止写入: ' + forbidden.reason, path: filePath });
+          return jsonResult({ success: true, blocked: true, reason: '禁止写入: ' + forbidden.reason, path: filePath, neverAllow: true });
         }
 
-        // 写入 workspace 外的路径需要确认
+        // 写入 workspace 外的路径需要确认（可被 globalPermissions 绕过）
         if (isOutsideWorkspace(filePath, wsDir) && !ctx.globalPermissions && !ctx._confirmed) {
           const sensitive = isSensitivePath(filePath);
           return jsonResult({
@@ -151,13 +151,13 @@ function buildBuiltinTools(ctx) {
       execute: async (_toolCallId, args) => {
         const filePath = resolvePath(args.path, wsDir);
 
-        // 路径安全检查
+        // 路径安全检查（NEVER_ALLOW + FORBIDDEN — 任何权限都无法绕过）
         const forbidden = isForbiddenPath(filePath);
         if (forbidden) {
-          return jsonResult({ success: true, blocked: true, reason: '禁止写入: ' + forbidden.reason, path: filePath });
+          return jsonResult({ success: true, blocked: true, reason: '禁止写入: ' + forbidden.reason, path: filePath, neverAllow: true });
         }
 
-        // 写入 workspace 外的路径需要确认
+        // 写入 workspace 外的路径需要确认（可被 globalPermissions 绕过）
         if (isOutsideWorkspace(filePath, wsDir) && !ctx.globalPermissions && !ctx._confirmed) {
           const sensitive = isSensitivePath(filePath);
           return jsonResult({
@@ -191,13 +191,13 @@ function buildBuiltinTools(ctx) {
       execute: async (_toolCallId, args) => {
         const dirPath = resolvePath(args.path || '.', wsDir);
 
-        // 路径安全检查
+        // 路径安全检查（NEVER_ALLOW + FORBIDDEN — 任何权限都无法绕过）
         const forbidden = isForbiddenPath(dirPath);
         if (forbidden) {
-          return jsonResult({ success: true, blocked: true, reason: '禁止列出: ' + forbidden.reason, path: dirPath });
+          return jsonResult({ success: true, blocked: true, reason: '禁止列出: ' + forbidden.reason, path: dirPath, neverAllow: true });
         }
 
-        // workspace 外的路径需要确认
+        // workspace 外的路径需要确认（可被 globalPermissions 绕过）
         if (isOutsideWorkspace(dirPath, wsDir) && !ctx.globalPermissions && !ctx._confirmed) {
           const sensitive = isSensitivePath(dirPath);
           return jsonResult({
@@ -246,22 +246,20 @@ function buildBuiltinTools(ctx) {
       execute: async (_toolCallId, args) => {
         if (!args.command) return jsonResult({ success: false, error: '缺少 command 参数' });
 
-        // 1. 危险命令检测（最高优先级，直接拦截）
-        if (!ctx.globalPermissions) {
-          const danger = detectDangerousCommand(args.command);
-          if (danger) {
-            return jsonResult({ success: true, blocked: true, reason: danger.reason, command: args.command, stdout: '', stderr: '' });
-          }
+        // 1. 危险命令检测（最高优先级，NEVER_ALLOW — 任何权限都无法绕过）
+        const danger = detectDangerousCommand(args.command);
+        if (danger) {
+          return jsonResult({ success: true, blocked: true, reason: danger.reason, command: args.command, stdout: '', stderr: '', neverAllow: true });
         }
 
         // 2. 命令安全级别分类
         const safetyLevel = classifyCommand(args.command);
 
-        // 3. 工作目录检查
+        // 3. 工作目录检查（NEVER_ALLOW — 不可绕过）
         const workDir = args.cwd ? resolvePath(args.cwd, wsDir) : wsDir;
         const cwdCheck = isForbiddenPath(workDir);
         if (cwdCheck) {
-          return jsonResult({ success: true, blocked: true, reason: '工作目录在禁止区域: ' + cwdCheck.reason, command: args.command, stdout: '', stderr: '' });
+          return jsonResult({ success: true, blocked: true, reason: '工作目录在禁止区域: ' + cwdCheck.reason, command: args.command, stdout: '', stderr: '', neverAllow: true });
         }
 
         // 4. 敏感命令需要二次确认
@@ -491,8 +489,71 @@ class ToolRegistry {
 }
 
 // ============================================================
-// 安全约束系统
+// 安全约束系统 — "deny 永远赢" 原则
+//
+// 规则层级（优先级从高到低）:
+//   1. NEVER_ALLOW — 绝对禁止，任何权限模式都无法绕过
+//   2. FORBIDDEN_PATHS — 系统关键目录，globalPermissions 也不可绕过
+//   3. DANGER_PATTERNS — 危险命令，globalPermissions 也不可绕过
+//   4. PROTECTED_PATHS — bypass 免疫路径，需确认但不可自动放行
+//   5. SENSITIVE_PATHS / SENSITIVE_COMMANDS — 需二次确认
+//   6. SAFE_COMMANDS — 可直接执行
 // ============================================================
+
+// 0. 绝对禁止路径 — NEVER_ALLOW，任何权限都无法绕过
+// 包括: .git/ (git历史损坏), shell配置 (命令注入), SSH密钥 (身份冒用)
+const NEVER_ALLOW_PATHS = [
+  // Git 仓库元数据 — 损坏会导致 git 历史丢失
+  '.git',
+  '.git\\', '.git/',
+  // Shell 配置文件 — 修改可导致命令注入
+  '.bashrc', '.bash_profile', '.bash_logout', '.profile',
+  '.zshrc', '.zprofile', '.zshenv',
+  '.kshrc', '.cshrc', '.tcshrc',
+  'config.fish',
+  // Git 全局配置 — 身份冒用
+  '.gitconfig', '.gitignore_global',
+  // SSH 密钥 — 身份冒用/密钥泄露
+  '.ssh',
+  '.ssh\\', '.ssh/',
+  // 凭据文件
+  '.npmrc', '.pypirc', '.netrc', '.aws',
+  '.env', '.env.local', '.env.production',
+  // GPG 密钥
+  '.gnupg', '.gpg',
+  // 系统级配置
+  'hosts', 'resolv.conf', 'fstab',
+];
+
+// 0b. 绝对禁止的命令模式 — NEVER_ALLOW，任何权限都无法绕过
+const NEVER_ALLOW_COMMAND_PATTERNS = [
+  { pattern: /\brm\s+(-[a-z]*r[a-z]*f[a-z]*|-rf)\s+.*\.git/i, reason: '删除 .git 目录会导致 git 历史永久丢失' },
+  { pattern: /\bdel\s+.*\.git/i, reason: '删除 .git 目录会导致 git 历史永久丢失' },
+  { pattern: /\brm\s+(-[a-z]*r[a-z]*f[a-z]*|-rf)\s+\//i, reason: '递归删除根目录' },
+  { pattern: /\brm\s+(-[a-z]*r[a-z]*f[a-z]*|-rf)\s+~(\/|\\)/i, reason: '递归删除用户主目录' },
+  { pattern: /\bdel\s+\/[fq]\s+\/[s]\s+C:\\/i, reason: '批量删除系统盘文件' },
+  { pattern: /\b(format|diskpart)\b/i, reason: '磁盘格式化/分区操作' },
+  { pattern: /\b(shutdown|reboot|halt|poweroff|init\s+[06])\b/i, reason: '系统关机/重启' },
+  { pattern: /\bdd\s+if=/i, reason: '磁盘镜像写入' },
+  { pattern: /\bmkfs\b/i, reason: '文件系统格式化' },
+  { pattern: /\bchmod\s+(-R\s+)?777\s+\//i, reason: '批量开放根目录权限' },
+  { pattern: /\bcurl.*\|\s*(sh|bash|cmd)\b/i, reason: '远程代码执行(curl piped to shell)' },
+  { pattern: /\bwget.*-O-.*\|\s*(sh|bash)\b/i, reason: '远程代码执行(wget piped to shell)' },
+  { pattern: /\biex\s/i, reason: 'PowerShell远程代码执行' },
+  { pattern: /\bInvoke-Expression\b/i, reason: 'PowerShell远程代码执行' },
+  { pattern: /\beval\s*\(/i, reason: 'JS/Python eval执行' },
+  { pattern: /:\s*\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;:/, reason: 'Fork炸弹' },
+  { pattern: /\b>\/dev\/sda\b/i, reason: '覆盖磁盘设备' },
+  // 新增: 写入 shell 配置文件
+  { pattern: />\s*~\/\.bashrc/i, reason: '写入 .bashrc 可导致命令注入' },
+  { pattern: />\s*~\/\.zshrc/i, reason: '写入 .zshrc 可导致命令注入' },
+  { pattern: />\s*~\/\.profile/i, reason: '写入 .profile 可导致命令注入' },
+  // 新增: SSH 密钥操作
+  { pattern: /\bssh-keygen\b/i, reason: '生成 SSH 密钥可能覆盖现有密钥' },
+  // 新增: 凭据窃取
+  { pattern: /\bcat\s+.*\.ssh\/id_(rsa|ed25519|ecdsa)/i, reason: '读取 SSH 私钥' },
+  { pattern: /\btype\s+.*\.ssh\/id_(rsa|ed25519|ecdsa)/i, reason: '读取 SSH 私钥' },
+];
 
 // 1. 命令白名单 — 这些命令可以直接执行，不需要二次确认
 const SAFE_COMMANDS = [
@@ -615,10 +676,37 @@ function classifyCommand(command) {
   return 'sensitive';
 }
 
-// 检查路径是否在禁止列表中
+// 检查路径是否在禁止列表中（FORBIDDEN_PATHS + NEVER_ALLOW_PATHS + UNC路径）
+// 注意: 此检查不可被 globalPermissions 或 _confirmed 绕过
 function isForbiddenPath(filePath) {
   if (!filePath) return false;
   const normalized = path.resolve(filePath).toLowerCase();
+
+  // 1. Windows UNC 路径防护 — 防止 NTLM 凭据泄露
+  // \\attacker-server\share\file.txt 会触发 Windows 自动发送 NTLM 凭据
+  if (/^\\\\[a-z0-9]/i.test(filePath) || filePath.startsWith('//')) {
+    return { forbidden: true, reason: 'UNC网络路径已被禁止(防止NTLM凭据泄露): ' + filePath };
+  }
+
+  // 2. NEVER_ALLOW 路径检查 — deny 永远赢，任何权限都无法绕过
+  for (const na of NEVER_ALLOW_PATHS) {
+    if (!na) continue;
+    const naLower = na.toLowerCase();
+    // 检查路径中是否包含这些危险目录/文件名
+    // 例如: /home/user/.git, C:\project\.git, /home/user/.bashrc
+    const segments = normalized.split(/[/\\]/);
+    for (const seg of segments) {
+      if (seg === naLower || seg === naLower.replace(/[/\\]$/, '')) {
+        return { forbidden: true, reason: 'NEVER_ALLOW: 受保护路径(不可绕过): ' + na };
+      }
+    }
+    // 也检查路径结尾是否匹配文件名
+    if (normalized.endsWith(naLower) || normalized.endsWith(naLower + '/') || normalized.endsWith(naLower + '\\')) {
+      return { forbidden: true, reason: 'NEVER_ALLOW: 受保护路径(不可绕过): ' + na };
+    }
+  }
+
+  // 3. FORBIDDEN_PATHS 检查 — 系统关键目录
   for (const fp of FORBIDDEN_PATHS) {
     if (!fp) continue;
     if (normalized.startsWith(fp.toLowerCase()) || normalized === fp.toLowerCase()) {
@@ -650,30 +738,15 @@ function isOutsideWorkspace(filePath, workspaceDir) {
 }
 
 // ============================================================
-// 危险命令检测 (保留现有逻辑)
+// 危险命令检测 — "deny 永远赢" 原则
+// NEVER_ALLOW_COMMAND_PATTERNS 不可被任何权限绕过
 // ============================================================
-const DANGER_PATTERNS = [
-  { pattern: /\brm\s+(-[a-z]*r[a-z]*f[a-z]*|-rf)\s+\//i, reason: '递归删除根目录' },
-  { pattern: /\brm\s+(-[a-z]*r[a-z]*f[a-z]*|-rf)\s+~(\/|\\)/i, reason: '递归删除用户主目录' },
-  { pattern: /\bdel\s+\/[fq]\s+\/[s]\s+C:\\/i, reason: '批量删除系统盘文件' },
-  { pattern: /\b(format|diskpart)\b/i, reason: '磁盘格式化/分区操作' },
-  { pattern: /\b(shutdown|reboot|halt|poweroff|init\s+[06])\b/i, reason: '系统关机/重启' },
-  { pattern: /\bdd\s+if=/i, reason: '磁盘镜像写入' },
-  { pattern: /\bmkfs\b/i, reason: '文件系统格式化' },
-  { pattern: /\bchmod\s+(-R\s+)?777\s+\//i, reason: '批量开放根目录权限' },
-  { pattern: /\bcurl.*\|\s*(sh|bash|cmd)\b/i, reason: '远程代码执行(curl piped to shell)' },
-  { pattern: /\bwget.*-O-.*\|\s*(sh|bash)\b/i, reason: '远程代码执行(wget piped to shell)' },
-  { pattern: /\biex\s/i, reason: 'PowerShell远程代码执行' },
-  { pattern: /\bInvoke-Expression\b/i, reason: 'PowerShell远程代码执行' },
-  { pattern: /\beval\s*\(/i, reason: 'JS/Python eval执行' },
-  { pattern: /:\s*\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;:/, reason: 'Fork炸弹' },
-  { pattern: /\b>\/dev\/sda\b/i, reason: '覆盖磁盘设备' }
-];
 
 function detectDangerousCommand(command) {
-  for (var i = 0; i < DANGER_PATTERNS.length; i++) {
-    if (DANGER_PATTERNS[i].pattern.test(command)) {
-      return { blocked: true, reason: DANGER_PATTERNS[i].reason, command };
+  // NEVER_ALLOW 命令检查 — 任何权限都无法绕过
+  for (var i = 0; i < NEVER_ALLOW_COMMAND_PATTERNS.length; i++) {
+    if (NEVER_ALLOW_COMMAND_PATTERNS[i].pattern.test(command)) {
+      return { blocked: true, reason: NEVER_ALLOW_COMMAND_PATTERNS[i].reason, command, neverAllow: true };
     }
   }
   return null;

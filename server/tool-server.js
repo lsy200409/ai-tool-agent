@@ -603,11 +603,22 @@ var server = http.createServer(async function(req, res) {
   ];
 
   var requestOrigin = req.headers.origin || '';
-  var allowedOrigin = CORS_WHITELIST.indexOf(requestOrigin) >= 0 ? requestOrigin : 'chrome-extension://diaocpmadbepofacimmkigkkkeihnjio';
-  res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+  var allowedOrigin = CORS_WHITELIST.indexOf(requestOrigin) >= 0 ? requestOrigin : '';
+  if (allowedOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
+  if (req.method === 'OPTIONS') {
+    if (!allowedOrigin) { res.writeHead(403); res.end('Forbidden'); return; }
+    res.writeHead(200); res.end(); return;
+  }
+  // 拒绝未授权来源的 POST 请求
+  if (!allowedOrigin && req.method === 'POST') {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: '来源未授权' }));
+    return;
+  }
 
   try {
     var urlPath = req.url.split('?')[0];

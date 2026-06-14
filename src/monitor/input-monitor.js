@@ -418,7 +418,14 @@ MONITOR.coordinator = {
       // 检查约束拦截结果
       var data = result.data || result;
       if (data.blocked) {
-        if (data.needsConfirmation) {
+        if (data.neverAllow) {
+          // NEVER_ALLOW — 绝对禁止，任何权限都无法绕过
+          MONITOR.ui.notifyState('绝对禁止: ' + toolName, { level: 'error', message: data.reason || '此操作被安全规则永久禁止' });
+          if (typeof logPanel === 'function') {
+            logPanel('error', '🚫 绝对禁止: ' + toolName + ' — ' + (data.reason || '此操作被安全规则永久禁止'));
+          }
+          return { success: false, error: '绝对禁止(NEVER_ALLOW): ' + (data.reason || '此操作被安全规则永久禁止'), blocked: true, neverAllow: true, tool: toolName };
+        } else if (data.needsConfirmation) {
           // 敏感操作 — 弹出确认对话框
           MONITOR.ui.notifyState('等待确认: ' + toolName, { level: 'warn', message: data.reason || '敏感操作需要确认' });
           if (typeof logPanel === 'function') {
