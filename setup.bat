@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 
 echo.
 echo   ╔══════════════════════════════════════════════════╗
-echo   ║     DeepSeek Tool Agent v2.6 — 一键安装脚本      ║
+echo   ║     AI Tool Agent v0.1.1 — 一键安装脚本        ║
 echo   ╚══════════════════════════════════════════════════╝
 echo.
 

@@ -1,8 +1,8 @@
 @echo off
 chcp 65001 >nul
-title DeepSeek Tool Agent - 工具服务器
+title AI Tool Agent - 工具服务器
 echo ============================================
-echo   DeepSeek Tool Agent v2.6
+echo   AI Tool Agent v0.1.1
 echo   启动本地工具服务器...
 echo ============================================
 echo.
