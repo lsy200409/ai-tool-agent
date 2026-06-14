@@ -13,6 +13,7 @@ const util = require('util');
 const fsp = require('fs').promises;
 const fss = require('fs');
 const path = require('path');
+const crossPlatform = require('./cross-platform');
 
 const execPromise = util.promisify(exec);
 
@@ -233,13 +234,15 @@ function buildBuiltinTools(ctx) {
     {
       name: 'exec_command',
       label: 'Execute Command',
-      description: '在终端中执行命令并返回输出。参数: command, cwd (工作目录), timeout (毫秒,默认30s)',
+      description: '在终端中执行命令并返回输出。参数: command, cwd, timeout, wsl (是否在WSL中执行)',
       parameters: {
         type: 'object',
         properties: {
           command: { type: 'string', description: 'Shell命令' },
           cwd: { type: 'string', description: '工作目录' },
-          timeout: { type: 'number', description: '超时毫秒数' }
+          timeout: { type: 'number', description: '超时毫秒数' },
+          wsl: { type: 'boolean', description: '是否在WSL2中执行(仅Windows)' },
+          distro: { type: 'string', description: 'WSL发行版名称(默认Ubuntu)' }
         },
         required: ['command']
       },
@@ -279,17 +282,33 @@ function buildBuiltinTools(ctx) {
 
         // 5. 执行命令
         try {
-          const result = await execPromise(args.command, {
+          let execCommand = args.command;
+          let execCwd = workDir;
+          let execOptions = {
             timeout: args.timeout || 30000,
             maxBuffer: 2 * 1024 * 1024,
             cwd: workDir, shell: true,
             windowsHide: true
-          });
+          };
+
+          // WSL 模式: 在 WSL2 中执行命令
+          const useWsl = args.wsl || detectWslCommand(args.command);
+          if (useWsl && crossPlatform.PLATFORM.isWindows && crossPlatform.WSL.isAvailable()) {
+            execCommand = crossPlatform.WSL.buildWslCommand(args.command, {
+              cwd: workDir,
+              distro: args.distro
+            });
+            // WSL 命令在 Windows 侧执行，不需要 cwd
+            delete execOptions.cwd;
+          }
+
+          const result = await execPromise(execCommand, execOptions);
           return jsonResult({
             success: true,
             stdout: (result.stdout || '').substring(0, 50000),
             stderr: (result.stderr || '').substring(0, 10000),
-            safetyLevel: safetyLevel
+            safetyLevel: safetyLevel,
+            wsl: useWsl
           });
         } catch (error) {
           return jsonResult({
@@ -684,7 +703,10 @@ function isForbiddenPath(filePath) {
 
   // 1. Windows UNC 路径防护 — 防止 NTLM 凭据泄露
   // \\attacker-server\share\file.txt 会触发 Windows 自动发送 NTLM 凭据
-  if (/^\\\\[a-z0-9]/i.test(filePath) || filePath.startsWith('//')) {
+  // 但 \\wsl$\ 和 \\wsl.localhost\ 是合法的 WSL 文件系统访问路径，应放行
+  if (/^\\\\wsl(\$|\.localhost)\\/i.test(filePath) || /^\/\/wsl(\$|\.localhost)\//i.test(filePath)) {
+    // WSL 文件系统路径 — 允许，但继续后续安全检查
+  } else if (/^\\\\[a-z0-9]/i.test(filePath) || filePath.startsWith('//')) {
     return { forbidden: true, reason: 'UNC网络路径已被禁止(防止NTLM凭据泄露): ' + filePath };
   }
 
@@ -756,9 +778,60 @@ function detectDangerousCommand(command) {
 // 辅助
 // ============================================================
 function resolvePath(filePath, workspaceDir) {
+  if (!filePath) return workspaceDir || process.cwd();
+
+  // WSL 网络路径: \\wsl$\Ubuntu\home\user — 直接返回，Windows 可访问
+  if (/^\\\\wsl(\$|\.localhost)\\/i.test(filePath)) return filePath;
+
+  // /mnt/c/... 格式 — WSL 风格路径，转为 Windows 路径
+  if (crossPlatform.WSL.isWslPath(filePath)) {
+    return crossPlatform.WSL.wslToWin(filePath);
+  }
+
+  // WSL 原生路径: /home/user/... — 转为 \\wsl$\Distro\home\user
+  if (crossPlatform.PLATFORM.isWindows && crossPlatform.WSL.isWslNativePath(filePath)) {
+    const distro = crossPlatform.WSL.getDefaultDistro();
+    return '\\\\wsl$\\' + distro + filePath.replace(/\//g, '\\');
+  }
+
   if (path.isAbsolute(filePath)) return path.resolve(filePath);
   var normalized = filePath.replace(/^[/\\]*workspace[/\\]/i, '');
   return path.join(workspaceDir, normalized);
+}
+
+// 检测命令是否应该在 WSL 中执行
+// 包含 Linux 特有命令或路径时自动切换
+function detectWslCommand(command) {
+  if (!crossPlatform.PLATFORM.isWindows) return false;
+  if (!crossPlatform.WSL.isAvailable()) return false;
+
+  // 明确的 Linux 命令
+  const linuxOnlyCmds = [
+    'apt', 'apt-get', 'dpkg', 'snap', 'systemctl', 'journalctl',
+    'pacman', 'yum', 'dnf', 'zypper',
+    'grep -R', 'find /', 'chmod', 'chown',
+    'bash -c', 'sh -c',
+    'make', 'cmake',
+    'gcc', 'g++', 'clang',
+    'docker run', 'docker exec',
+    'python3', 'pip3',
+    'ls -la', 'cat /etc/',
+    'htop', 'nano', 'vim',
+    'apt-cache', 'aptitude'
+  ];
+
+  const cmdLower = command.toLowerCase().trim();
+  for (const lc of linuxOnlyCmds) {
+    if (cmdLower.startsWith(lc.toLowerCase())) return true;
+  }
+
+  // 包含 Linux 特有路径
+  if (/\/etc\/|\/var\/log\/|\/usr\/|\/home\/|\/tmp\//.test(command)) return true;
+
+  // 包含管道和 Linux 命令
+  if (/\|\s*(grep|awk|sed|sort|uniq|head|tail|xargs)\b/.test(command)) return true;
+
+  return false;
 }
 
 function generateId() {

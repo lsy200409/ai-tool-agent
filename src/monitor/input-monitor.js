@@ -887,7 +887,8 @@ MONITOR.observer = {
 
     if (allFailed) {
       MONITOR._consecutiveFailures++;
-      if (MONITOR._consecutiveFailures >= DS_CONFIG.circuitBreaker.maxConsecutiveFails) {
+      var maxFails = (typeof DS_CONFIG !== 'undefined' && DS_CONFIG.circuitBreaker && DS_CONFIG.circuitBreaker.maxConsecutiveFails) || 5;
+      if (MONITOR._consecutiveFailures >= maxFails) {
         MONITOR._circuitBreakerTriggered = true;
         MONITOR.ui.notifyState('熔断', { level: 'error', message: '工具 ' + currentTool + ' 连续失败 ' + MONITOR._consecutiveFailures + ' 次，已触发熔断' });
         if (typeof logPanel === 'function') logPanel('error', '熔断触发: ' + currentTool + ' 连续失败 ' + MONITOR._consecutiveFailures + ' 次');
@@ -900,7 +901,7 @@ MONITOR.observer = {
       MONITOR._consecutiveFailures = 0;
     }
 
-    if (MONITOR._consecutiveSameTool >= (DS_CONFIG.circuitBreaker.maxConsecutiveFails * 2)) {
+    if (MONITOR._consecutiveSameTool >= (maxFails * 2)) {
       if (typeof logPanel === 'function') logPanel('warn', 'AI 可能陷入重试循环，已请求 ' + currentTool + ' 共 ' + MONITOR._consecutiveSameTool + ' 次');
     }
 

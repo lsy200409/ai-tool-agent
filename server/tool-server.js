@@ -161,6 +161,15 @@ function registerPluginManagerTools() {
           required: ['id', 'name', 'code']
         },
         execute: async function (_toolCallId, args) {
+          // 安全检查: 插件安装需要用户确认，防止远程代码注入
+          if (!ctx._confirmed) {
+            return [{ type: 'text', text: JSON.stringify({
+              success: false,
+              tool: 'plugin_install',
+              error: '插件安装需要用户确认，不可自动执行',
+              needsConfirmation: true
+            }) }];
+          }
           try {
             var pluginDir = path.join(PLUGINS_DIR, args.id);
             var manifest = {
@@ -807,16 +816,19 @@ var server = http.createServer(async function(req, res) {
           if (req.method === 'POST') {
             var execToolName = body.tool;
             var execArgs = body.args || {};
-            if (!execToolName) { result = { error: { code: 'MISSING_PARAM', message: '缺少 tool 参数' } }; break; }
+            if (!execToolName) { result = { success: false, error: { code: 'MISSING_PARAM', message: '缺少 tool 参数' } }; break; }
             var execResult = await toolRegistry.executeTool(execToolName, execArgs, { mode: body.mode || 'auto' });
             if (Array.isArray(execResult) && execResult.length > 0 && execResult[0].text) {
               try { result = JSON.parse(execResult[0].text); } catch (e) { result = { content: execResult[0].text }; }
             } else {
               result = { content: execResult };
             }
-            result.success = true;
+            // 保留工具执行的实际成功/失败状态，不再强制覆盖为 true
+            if (typeof result.success === 'undefined') {
+              result.success = !result.error && !result.blocked;
+            }
           } else {
-            result = { error: { code: 'METHOD_NOT_ALLOWED', message: '仅支持 POST' } };
+            result = { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: '仅支持 POST' } };
           }
           break;
 
@@ -1020,4 +1032,21 @@ ensureDirectories().then(async function() {
 });
 
 process.on('SIGINT', function() { console.log('\nShutting down...'); server.close(function() { process.exit(0); }); });
-process.on('uncaughtException', function(err) { console.error('Uncaught:', err.message); });
+process.on('uncaughtException', function(err) {
+  console.error('=== 未捕获异常 ===');
+  console.error('时间:', new Date().toISOString());
+  console.error('类型:', err.constructor.name);
+  console.error('消息:', err.message);
+  console.error('堆栈:', err.stack || '(无堆栈)');
+  console.error('==================');
+  // 进程状态可能已损坏，安全退出让 launcher 重启
+  console.error('进程将在 3 秒后退出...');
+  setTimeout(function() { process.exit(1); }, 3000);
+});
+process.on('unhandledRejection', function(reason, promise) {
+  console.error('=== 未处理的 Promise 拒绝 ===');
+  console.error('时间:', new Date().toISOString());
+  console.error('原因:', reason);
+  if (reason && reason.stack) console.error('堆栈:', reason.stack);
+  console.error('==========================');
+});
