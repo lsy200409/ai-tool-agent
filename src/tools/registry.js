@@ -19,6 +19,7 @@ function getToolList() {
   return list;
 }
 
+// NOTE: buildSystemPrompt also defined in background.js (service worker) and injected.js (MAIN world) — must keep in sync
 function buildSystemPrompt() {
   var list = getToolList();
   var prompt = '## 可用工具\n';

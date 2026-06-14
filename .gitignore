@@ -65,3 +65,17 @@ workspace/bug_analysis.md
 # Playwright
 .browser-data*/
 test-results/
+
+# Build output
+dist/
+
+# E2E test files
+tests/e2e-*.js
+tests/full-*.js
+tests/quick-*.js
+tests/functional-*.js
+tests/monitor-*.js
+tests/probe-*.js
+tests/kimi-*.js
+tests/load-*.js
+tests/lib/

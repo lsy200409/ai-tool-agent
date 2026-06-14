@@ -4,6 +4,7 @@
   if (window.__deepseekToolAgentInjected) return;
   window.__deepseekToolAgentInjected = true;
 
+  // NOTE: TOOL_DEFINITIONS also defined in background.js (service worker) and tools/registry.js (ISOLATED world) — must keep in sync
   var TOOL_DEFINITIONS = [
     { name: "read_file",   description: "读取本地文件内容",                     parameters: { path: "string" } },
     { name: "write_file",  description: "写入内容到本地文件(不存在则创建,存在则覆盖)", parameters: { path: "string", content: "string" } },

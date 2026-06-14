@@ -135,13 +135,7 @@
       var isDisabled = btn && (btn.disabled || btn.classList.contains('disabled') || btn.classList.contains('cursor-not-allowed'));
       if (btn && !isDisabled) { btn.click(); return true; }
       var input = typeof findChatInput === 'function' ? findChatInput() : null;
-      if (!input) return false;
-      input.focus();
-      var evt = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true };
-      input.dispatchEvent(new KeyboardEvent('keydown', evt));
-      input.dispatchEvent(new KeyboardEvent('keypress', evt));
-      input.dispatchEvent(new KeyboardEvent('keyup', evt));
-      return true;
+      return PlatformAdapter.sendMessageFallback(input);
     }
   };
 

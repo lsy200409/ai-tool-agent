@@ -1,164 +1,108 @@
-var { chromium } = require('playwright-core');
+// 全面端到端测试 v3
+const { chromium } = require('playwright-core');
 
-var T0 = Date.now();
-function ts() { return '[' + ((Date.now() - T0) / 1000).toFixed(1) + 's]'; }
+(async () => {
+  const browser = await chromium.connectOverCDP('http://localhost:9222');
+  const context = browser.contexts()[0];
 
-async function main() {
-  console.log('╔═══════════════════════════════════════════════════════╗');
-  console.log('║  工具调用链路端到端测试 v3                            ║');
-  console.log('╚═══════════════════════════════════════════════════════╝');
+  const platforms = [
+    { name: 'Kimi', pattern: 'kimi' },
+    { name: '千问国际版', pattern: 'qwen.ai' },
+    { name: '豆包', pattern: 'doubao' },
+    { name: '通义千问', pattern: 'qianwen' },
+    { name: '智谱ChatGLM', pattern: 'chatglm' }
+  ];
 
-  var browser = await chromium.connectOverCDP('http://localhost:9222');
-  var ctx = browser.contexts()[0];
-  var page = ctx.pages().find(function(pg) { return pg.url().indexOf('chat.deepseek.com') >= 0; });
-  if (!page) { console.log('ERROR: 未找到 DeepSeek 页面!'); process.exit(1); }
+  for (const ck of platforms) {
+    const page = context.pages().find(p => p.url().includes(ck.pattern));
+    if (!page) { console.log(ck.name + ': 页面未打开'); continue; }
 
-  // 不刷新页面！直接在当前页面上安装处理器
+    console.log('\n=== ' + ck.name + ' ===');
+    console.log('URL:', page.url());
 
-  // 安装 MAIN world 工具调用处理器
-  console.log(ts() + ' 安装工具调用处理器...');
-  await page.evaluate(function() {
-    // 清除之前的
-    window.__dsToolChainActive = false;
-    window.__dsToolChainLog = [];
-    window.__dsToolChainResults = null;
-
-    // 工具调用解析
-    window.__dsParseToolCalls = function(text) {
-      if (!text) return [];
-      var calls = [];
-      var regex = /<tool_call\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/tool_call>/gi;
-      var match;
-      while ((match = regex.exec(text)) !== null) {
-        try {
-          var args = JSON.parse(match[2].trim());
-          calls.push({ name: match[1], arguments: args });
-        } catch(e) {
-          calls.push({ name: match[1], arguments: match[2].trim(), parseError: true });
-        }
-      }
-      return calls;
-    };
-
-    // 工具执行
-    window.__dsExecuteTool = function(toolCall) {
-      return new Promise(function(resolve) {
-        fetch('http://localhost:3002/exec', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tool: toolCall.name, args: toolCall.arguments })
-        }).then(function(r) { return r.json(); })
-          .then(function(data) { resolve(data); })
-          .catch(function(e) { resolve({ success: false, error: e.message, tool: toolCall.name }); });
+    // CDP 网络监控
+    const client = await context.newCDPSession(page);
+    await client.send('Network.enable');
+    const apiRequests = [];
+    client.on('Network.requestWillBeSent', (params) => {
+      const url = params.request.url;
+      if (url.includes('.js') || url.includes('.css') || url.includes('.png') || url.includes('.svg') ||
+          url.includes('.woff') || url.includes('alicdn') || url.includes('google') ||
+          url.includes('aliyun') || url.includes('arms') || url.includes('localhost') ||
+          url.includes('byteacctimg') || url.includes('flow-doubao') || url.includes('bytegoofy') ||
+          url.includes('volces') || url.includes('mcs.doubao') || url.includes('opt.doubao') ||
+          url.includes('aplus.qwen') || url.includes('pagead2') || url.includes('alilog') ||
+          url.includes('tongyi') || url.includes('mst') || url.includes('sentry') ||
+          url.includes('.gif') || url.includes('.ico') || url.includes('.webp')) return;
+      apiRequests.push({
+        method: params.request.method,
+        url: url.substring(0, 250)
       });
-    };
-
-    // 结果注入
-    window.__dsInjectResult = function(results) {
-      return new Promise(function(resolve) {
-        var ta = document.querySelector('textarea');
-        if (!ta) { resolve({ ok: false, reason: 'no textarea' }); return; }
-
-        var resultText = '[TOOL_RESULT]\n' + JSON.stringify(results, null, 2) + '\n[/TOOL_RESULT]';
-        var setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
-        if (setter && setter.set) setter.set.call(ta, resultText);
-        else ta.value = resultText;
-        ta.dispatchEvent(new Event('input', { bubbles: true }));
-
-        setTimeout(function() {
-          // 用 Playwright 的 Enter 键发送（最可靠）
-          ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-          resolve({ ok: true, method: 'Enter key' });
-        }, 500);
-      });
-    };
-
-    // SSE 监听 — 检测到 __ds_stream_end 后解析工具调用
-    window.__dsToolChainHandler = function(e) {
-      if (!e.data || typeof e.data !== 'object') return;
-      if (e.data.source !== 'deepseek-tool-agent') return;
-      if (e.data.type !== '__ds_stream_end') return;
-
-      var text = e.data.text || '';
-      var toolCalls = window.__dsParseToolCalls(text);
-
-      window.__dsToolChainLog.push('SSE end: textLen=' + text.length + ' toolCalls=' + toolCalls.length);
-
-      if (toolCalls.length > 0 && !window.__dsToolChainActive) {
-        window.__dsToolChainActive = true;
-        window.__dsToolChainLog.push('检测到 ' + toolCalls.length + ' 个工具调用: ' + toolCalls.map(function(c) { return c.name; }).join(', '));
-
-        (async function() {
-          var results = [];
-          for (var i = 0; i < toolCalls.length; i++) {
-            var tc = toolCalls[i];
-            window.__dsToolChainLog.push('执行: ' + tc.name + ' ' + JSON.stringify(tc.arguments).substring(0, 60));
-            try {
-              var result = await window.__dsExecuteTool(tc);
-              results.push(result);
-              window.__dsToolChainLog.push(tc.name + ': ' + (result.success ? '成功' : '失败 ' + (result.error || '').substring(0, 50)));
-            } catch(err) {
-              results.push({ success: false, error: err.message, tool: tc.name });
-              window.__dsToolChainLog.push(tc.name + ' 异常: ' + err.message);
-            }
-          }
-
-          window.__dsToolChainLog.push('注入结果...');
-          var injectResult = await window.__dsInjectResult(results);
-          window.__dsToolChainLog.push('注入: ' + JSON.stringify(injectResult));
-
-          window.__dsToolChainActive = false;
-          window.__dsToolChainResults = results;
-        })();
-      }
-    };
-
-    window.addEventListener('message', window.__dsToolChainHandler);
-    console.log('[MAIN World] 工具调用处理器已安装');
-  });
-
-  console.log(ts() + ' 处理器已安装');
-
-  // 发送消息
-  var testMsg = '请用 list_dir 列出 C:\\ 目录';
-  console.log(ts() + ' 发送: "' + testMsg + '"');
-  await page.click('textarea');
-  await page.waitForTimeout(300);
-  await page.keyboard.type(testMsg, { delay: 30 });
-  await page.waitForTimeout(500);
-  await page.keyboard.press('Enter');
-  console.log(ts() + ' 已发送');
-
-  // 等待
-  console.log(ts() + ' 等待工具调用链路...');
-  for (var i = 0; i < 60; i++) {
-    await page.waitForTimeout(2000);
-
-    var info = await page.evaluate(function() {
-      return {
-        toolChainActive: window.__dsToolChainActive || false,
-        toolChainLog: window.__dsToolChainLog || [],
-        toolChainResults: window.__dsToolChainResults || null
-      };
     });
 
-    if (info.toolChainLog.length > 0) {
-      console.log(ts() + ' 日志更新:');
-      info.toolChainLog.forEach(function(l) { console.log('  → ' + l); });
+    // 发送消息
+    const sendResult = await page.evaluate(() => {
+      const platform = window.PlatformRegistry ? PlatformRegistry.detect() : null;
+      if (!platform) return { error: 'no platform' };
+
+      // 找输入框
+      var input = null;
+      for (var i = 0; i < platform.dom.chatInputSelectors.length; i++) {
+        var el = document.querySelector(platform.dom.chatInputSelectors[i]);
+        if (el && el.clientHeight > 0) { input = el; break; }
+      }
+      if (!input) return { error: 'no input' };
+
+      // setInputValue
+      platform.setInputValue(input, 'hello');
+
+      // 找发送按钮
+      var btn = platform.dom.findSendButton();
+      if (!btn) return { error: 'no send button', inputTag: input.tagName, inputValue: input.value || input.textContent?.substring(0, 30) };
+
+      // 检查 disabled
+      var isDisabled = btn.disabled || btn.classList.contains('disabled') || btn.classList.contains('cursor-not-allowed');
+      if (isDisabled) return { error: 'send button disabled', inputTag: input.tagName, inputValue: input.value || input.textContent?.substring(0, 30), btnCls: (typeof btn.className === 'string' ? btn.className : '').substring(0, 80) };
+
+      btn.click();
+      return { success: true, inputTag: input.tagName, inputValue: input.value || input.textContent?.substring(0, 30), btnTag: btn.tagName, btnCls: (typeof btn.className === 'string' ? btn.className : '').substring(0, 80) };
+    });
+    console.log('发送结果:', JSON.stringify(sendResult));
+
+    if (sendResult.success) {
+      // 等待回复
+      await new Promise(r => setTimeout(r, 12000));
+
+      // 检查 SSE 拦截
+      const sseResult = await page.evaluate(() => {
+        const d = window.__ds_interceptor_debug ? window.__ds_interceptor_debug() : {};
+        const s = window.__ds_streamState ? window.__ds_streamState() : {};
+        // 获取 fetch_match 调试事件
+        var fetchMatches = (d.streamEvents || []).filter(e => e.type === 'fetch_match');
+        return {
+          wrapperTotal: d.wrapperCalledTotal,
+          wrapperMatch: d.wrapperCalledMatchingUrl,
+          streamActive: s.active,
+          accumulatedLen: s.accumulatedText?.length,
+          accumulatedPreview: s.accumulatedText?.substring(0, 150),
+          finishReason: s.finishReason,
+          fetchMatches: fetchMatches.slice(-3),
+          urlsSeen: d.urlsSeen?.slice(-8)
+        };
+      });
+      console.log('SSE状态:', JSON.stringify(sseResult, null, 2));
+
+      // 检查 API 请求
+      var chatRequests = apiRequests.filter(r =>
+        r.url.includes('chat') || r.url.includes('completion') || r.url.includes('message') ||
+        r.url.includes('samantha') || r.url.includes('ChatService')
+      );
+      console.log('聊天API请求 (' + chatRequests.length + '):');
+      chatRequests.forEach(r => console.log('  [' + r.method + '] ' + r.url));
     }
 
-    if (info.toolChainResults) {
-      console.log(ts() + ' ═══ 工具执行结果 ═══');
-      console.log(JSON.stringify(info.toolChainResults, null, 2));
-      break;
-    }
-
-    if (i % 10 === 0 && info.toolChainLog.length === 0) {
-      console.log(ts() + ' 等待中... (round ' + i + ')');
-    }
+    await client.send('Network.disable');
   }
 
-  process.exit(0);
-}
-
-main().catch(function(e) { console.error(e); process.exit(1); });
+  await browser.close();
+})();

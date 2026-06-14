@@ -115,13 +115,7 @@
       if (!btn || btn.disabled) {
         // fallback: Enter 键（ChatGPT 支持 Enter 发送）
         var textarea = typeof findChatInput === 'function' ? findChatInput() : null;
-        if (!textarea) return false;
-        textarea.focus();
-        var evt = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true };
-        textarea.dispatchEvent(new KeyboardEvent('keydown', evt));
-        textarea.dispatchEvent(new KeyboardEvent('keypress', evt));
-        textarea.dispatchEvent(new KeyboardEvent('keyup', evt));
-        return true;
+        return PlatformAdapter.sendMessageFallback(textarea);
       }
       btn.click();
       return true;

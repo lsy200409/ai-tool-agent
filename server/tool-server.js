@@ -1,10 +1,10 @@
 // ============================================================
-// DeepSeek Tool Agent v2.5 — 本地工具服务器
+// DeepSeek Tool Agent v0.1.1 — 本地工具服务器
 // 工具注册器(ToolRegistry) + 插件加载器(PluginRegistry) + 技能系统
 //
-// 架构: openclaw 兼容
+// 架构: 插件化工具系统
 //   - 工具: AnyAgentTool { name, label, description, parameters, execute }
-//   - 插件: OpenClawPluginDefinition { id, name, version, register(api) }
+//   - 插件: { id, name, version, register(api) }
 //   - 执行管道: beforeHook → execute → afterHook
 //   - 模式: OFF(拒绝) / MANUAL(审批) / AUTO(直接)
 //   - Web搜索: 委托给 DeepSeek 内置能力，不在服务端实现
@@ -14,12 +14,12 @@ const http = require('http');
 const fs = require('fs').promises;
 const path = require('path');
 const { spawn } = require('child_process');
-const { ToolRegistry, jsonResult } = require('./tool-registry');
+const { ToolRegistry, jsonResult, createToolContext } = require('./tool-registry');
 const { PluginRegistry } = require('./plugin-loader');
 const crossPlatform = require('./cross-platform');
 
 const PORT = 3002;
-const ENGINE_VERSION = '2.6.0';
+const ENGINE_VERSION = '0.1.1';
 const SERVER_DIR = path.resolve(__dirname);
 
 var WORKSPACE_DIR = path.resolve(__dirname, '..', 'workspace');
@@ -641,7 +641,7 @@ var server = http.createServer(async function(req, res) {
         case '/api/tool':
           if (!body.name) { result = { success: false, error: '缺少 name 参数' }; break; }
           var toolResult = await toolRegistry.executeTool(body.name, body.args || body, { toolCallId: body.toolCallId, mode: body.mode || 'auto' });
-          // 解包 openclaw 格式 [{type:"text", text:"..."}] → {success, ...}
+          // 解包插件格式 [{type:"text", text:"..."}] → {success, ...}
           if (Array.isArray(toolResult) && toolResult.length > 0 && toolResult[0].text) {
             try { result = JSON.parse(toolResult[0].text); } catch (e) { result = { content: toolResult[0].text }; }
           } else {
@@ -700,7 +700,7 @@ var server = http.createServer(async function(req, res) {
           result = await handleFeishuReply(body);
           break;
 
-        // --- 已废弃: 兼容旧 API 端点 (v2.5+ 请使用 /exec) ---
+        // --- 已废弃: 兼容旧 API 端点 (v0.1.1+ 请使用 /exec) ---
         case '/api/read':
           result = await executeToolLegacy('read_file', { path: body.path });
           break;
@@ -726,6 +726,25 @@ var server = http.createServer(async function(req, res) {
         case '/api/log':
           await appendLog(body.level || 'INFO', body.message, body.data);
           result = { success: true };
+          break;
+
+        case '/api/confirm':
+          // 二次确认执行 — 用户确认后重新执行被拦截的工具
+          if (!body.tool || !body.args) {
+            result = { success: false, error: '缺少 tool 或 args 参数' };
+          } else {
+            try {
+              const confirmResult = await toolRegistry.executeToolConfirmed(body.tool, body.args, { toolCallId: 'confirm_' + Date.now() });
+              // 解包插件格式 [{type:"text", text:"..."}] → {success, ...}
+              if (Array.isArray(confirmResult) && confirmResult.length > 0 && confirmResult[0].text) {
+                try { result = JSON.parse(confirmResult[0].text); } catch(e) { result = { content: confirmResult[0].text }; }
+              } else {
+                result = confirmResult || { success: false, error: '执行无返回' };
+              }
+            } catch (e) {
+              result = { success: false, error: e.message };
+            }
+          }
           break;
 
         case '/api/config':
@@ -976,9 +995,9 @@ ensureDirectories().then(async function() {
     console.log('  Platform:  ' + sysInfo.platform + ' / ' + sysInfo.arch + ' / Node ' + sysInfo.nodeVersion);
     console.log('  Tools:     ' + toolRegistry.listTools().length + ' registered');
     console.log('  Plugins:   ' + pluginRegistry.plugins.length + ' loaded');
-    console.log('  Skills:    SKILL.md (openclaw compatible)');
+    console.log('  Skills:    SKILL.md');
     console.log('');
-    console.log('  API v2.5:  /exec (统一工具执行端点)');
+    console.log('  API v0.1.1:  /exec (统一工具执行端点)');
     console.log('             /api/tool (ToolRegistry pipeline)');
     console.log('             /api/tools (list/execute)');
     console.log('             /api/plugins (list/reload)');

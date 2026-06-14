@@ -151,12 +151,7 @@
       userMessageSelector: '[class*="user-message"], [class*="human-message"]',
 
       isUserMessage: function(el) {
-        if (el.getAttribute('data-role') === 'user') return true;
-        if (el.getAttribute('data-author') === 'user') return true;
-        var cls = (el.className || '');
-        if (cls.indexOf('user-message') >= 0 || cls.indexOf('human-message') >= 0) return true;
-        if (cls.indexOf('assistant') >= 0 || cls.indexOf('bot') >= 0 || cls.indexOf('ai') >= 0) return false;
-        return false;
+        return PlatformAdapter.isUserMessage(el);
       },
 
       detectStreaming: function() {
@@ -191,13 +186,7 @@
       if (btn && !btn.disabled) { btn.click(); return true; }
       // fallback: Enter
       var input = typeof findChatInput === 'function' ? findChatInput() : null;
-      if (!input) return false;
-      input.focus();
-      var evt = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true };
-      input.dispatchEvent(new KeyboardEvent('keydown', evt));
-      input.dispatchEvent(new KeyboardEvent('keypress', evt));
-      input.dispatchEvent(new KeyboardEvent('keyup', evt));
-      return true;
+      return PlatformAdapter.sendMessageFallback(input);
     }
   };
 

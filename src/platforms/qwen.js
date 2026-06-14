@@ -159,13 +159,7 @@
       if (btn && !btn.disabled) { btn.click(); return true; }
       // fallback: Enter
       var input = typeof findChatInput === 'function' ? findChatInput() : null;
-      if (!input) return false;
-      input.focus();
-      var evt = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true };
-      input.dispatchEvent(new KeyboardEvent('keydown', evt));
-      input.dispatchEvent(new KeyboardEvent('keypress', evt));
-      input.dispatchEvent(new KeyboardEvent('keyup', evt));
-      return true;
+      return PlatformAdapter.sendMessageFallback(input);
     }
   };
 

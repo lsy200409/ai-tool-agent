@@ -229,7 +229,7 @@
         // 调试：记录原始 SSE chunk
         if (_debug.streamEvents.length < 200) {
           var chunkKeys = Object.keys(chunk).join(',');
-          _debug.streamEvents.push({
+          var debugEntry = {
             type: 'raw_chunk',
             keys: chunkKeys,
             hasText: !!chunk.text,
@@ -237,7 +237,32 @@
             hasPatchOp: !!chunk.patch_op,
             hasContent: !!chunk.content,
             ts: Date.now()
-          });
+          };
+          // z.ai {type, data} 格式：记录 type 值和 data 结构
+          if (chunk.type !== undefined) {
+            debugEntry.chunkType = chunk.type;
+          }
+          if (chunk.data !== undefined) {
+            var dataStr = typeof chunk.data === 'string' ? chunk.data.substring(0, 200) : JSON.stringify(chunk.data).substring(0, 200);
+            debugEntry.dataPreview = dataStr;
+            debugEntry.dataIsString = typeof chunk.data === 'string';
+            // 尝试解析 data 看内部结构
+            if (typeof chunk.data === 'string') {
+              try {
+                var inner = JSON.parse(chunk.data);
+                debugEntry.dataKeys = Object.keys(inner).join(',');
+                if (inner.choices && inner.choices[0]) {
+                  debugEntry.innerDelta = !!inner.choices[0].delta;
+                  debugEntry.innerContent = !!(inner.choices[0].delta && inner.choices[0].delta.content);
+                }
+              } catch(e) {
+                debugEntry.dataParseError = true;
+              }
+            } else if (typeof chunk.data === 'object' && chunk.data !== null) {
+              debugEntry.dataKeys = Object.keys(chunk.data).join(',');
+            }
+          }
+          _debug.streamEvents.push(debugEntry);
         }
 
         var endReason = detectStreamEnd(chunk);

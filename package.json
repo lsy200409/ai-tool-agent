@@ -1,6 +1,6 @@
 {
   "name": "deepseek-tool-agent",
-  "version": "2.1.0",
+  "version": "0.1.1",
   "description": "DeepSeek Web Extension — Local Tool Calling & Agent Framework",
   "private": true,
   "scripts": {

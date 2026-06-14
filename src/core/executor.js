@@ -1,6 +1,10 @@
 // ============================================================
-// Extension Context 守卫 (参考 DeepSeek++)
+// Extension Context 守卫
 // ============================================================
+var EXECUTOR_CONTEXT_RECOVERY_MS = 3000;
+var EXECUTOR_HTTP_TIMEOUT_MS = 15000;
+var EXECUTOR_TOOL_TIMEOUT_MS = 30000;
+
 var __executorContextInvalidSince = 0;
 
 function hasLiveExecutorContext() {
@@ -26,7 +30,7 @@ function isContextInvalidatedError(err) {
 function recoverContextIfPossible() {
   if (!__executorContextInvalidSince) return;
   var elapsed = Date.now() - __executorContextInvalidSince;
-  if (elapsed < 3000) return;
+  if (elapsed < EXECUTOR_CONTEXT_RECOVERY_MS) return;
   __executorContextInvalidSince = 0;
   if (typeof logPanel === 'function') logPanel('info', '尝试恢复扩展连接...');
 }
@@ -99,6 +103,7 @@ async function executeToolViaHttp(toolCall) {
     });
     clearTimeout(timer);
     var data = await response.json();
+    if (data.blocked) return { success: true, data: data };
     if (data.error) return { success: false, error: data.error.message || '执行失败' };
     return { success: true, data: data };
   } catch (e) {
@@ -109,9 +114,14 @@ async function executeToolViaHttp(toolCall) {
 
 async function executeSingleTool(toolCall, session) {
   return new Promise(function(resolve) {
-    var timeout = setTimeout(function() { resolve({ success: false, error: '执行超时（30秒）' }); }, 30000);
+    var timeout = setTimeout(function() { resolve({ success: false, error: '执行超时（30秒）' }); }, EXECUTOR_TOOL_TIMEOUT_MS);
     sendMessageWithRetry({ action: 'executeTool', tool: toolCall }, 2).then(function(result) {
       clearTimeout(timeout);
+      // 处理约束拦截（blocked）的情况
+      if (result && result.blocked) {
+        resolve({ success: true, data: result });
+        return;
+      }
       if (result && result.success) resolve({ success: true, data: result.data });
       else {
         var errMsg = result ? result.error : '无响应';
@@ -129,4 +139,23 @@ async function executeSingleTool(toolCall, session) {
       } else { resolve({ success: false, error: errMsg }); }
     });
   });
+}
+
+// 确认执行 — 调用 /api/confirm 端点重新执行被拦截的工具
+async function executeConfirmedTool(toolName, args) {
+  var ctrl = new AbortController();
+  var timer = setTimeout(function() { ctrl.abort(); }, EXECUTOR_HTTP_TIMEOUT_MS);
+  try {
+    var response = await fetch(DS_CONFIG.serverUrl + '/api/confirm', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tool: toolName, args: args }), signal: ctrl.signal
+    });
+    clearTimeout(timer);
+    var data = await response.json();
+    if (data.success === false && data.error) return { success: false, error: data.error };
+    return { success: true, data: data };
+  } catch (e) {
+    clearTimeout(timer);
+    return { success: false, error: '确认执行失败: ' + e.message };
+  }
 }

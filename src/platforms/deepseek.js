@@ -113,12 +113,8 @@
       try { document.execCommand('selectAll'); } catch(e) {}
       try { document.execCommand('delete'); } catch(e) {}
       try {
-        var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
-        if (setter && setter.set) setter.set.call(element, value);
-        else element.value = value;
+        PlatformAdapter.setInputValueNative(element, value);
       } catch(e) { element.value = value; }
-      element.dispatchEvent(new Event('input', { bubbles: true }));
-      element.dispatchEvent(new Event('change', { bubbles: true }));
     },
 
     sendMessage: function() {
@@ -126,13 +122,7 @@
       if (!btn || btn.getAttribute('aria-disabled') === 'true' || btn.disabled) {
         // fallback: Enter 键
         var textarea = typeof findChatInput === 'function' ? findChatInput() : null;
-        if (!textarea) return false;
-        textarea.focus();
-        var evt = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true };
-        textarea.dispatchEvent(new KeyboardEvent('keydown', evt));
-        textarea.dispatchEvent(new KeyboardEvent('keypress', evt));
-        textarea.dispatchEvent(new KeyboardEvent('keyup', evt));
-        return true;
+        return PlatformAdapter.sendMessageFallback(textarea);
       }
       btn.focus();
       btn.click();

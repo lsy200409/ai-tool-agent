@@ -1,5 +1,5 @@
 // ============================================================
-// DeepSeek Tool Agent v2.6 — 实时输入监控模块
+// DeepSeek Tool Agent v0.1.1 — 实时输入监控模块
 //
 // 5层架构:
 //   Layer 0: SSE Stream Intercept — 网络层实时感知流状态 (NEW)
@@ -9,6 +9,12 @@
 //   Layer 4: Result Injector — 工具结果回注到对话
 //   Layer 5: UI Bridge — 与 panel.js 双向通信
 // ============================================================
+
+var MONITOR_STUCK_TIMEOUT = 5 * 60 * 1000;  // 监控卡死超时
+var MONITOR_STATE_TIMEOUT = 180000;           // 状态超时保护
+var SSE_TIMEOUT_MS = 5000;                    // SSE 无事件超时
+var POLL_INTERVAL_MS = 800;                   // 轮询间隔
+var STABLE_COUNT_THRESHOLD = 3;               // AI 回复稳定阈值
 
 var MONITOR = {
   state: 'idle',
@@ -21,9 +27,9 @@ var MONITOR = {
   },
 
   config: {
-    pollInterval: 200,
+    pollInterval: POLL_INTERVAL_MS,
     maxWaitTime: 90000,
-    stableThreshold: 5,
+    stableThreshold: STABLE_COUNT_THRESHOLD,
     autoResumeTimeout: 5000,
     maxToolIterations: 20
   },
@@ -46,9 +52,9 @@ var MONITOR = {
   }
 };
 
-// ============================================================
-// Layer 5: UI Bridge
-// ============================================================
+// ═══════════════════════════════════════════════════════════
+// § 1. UI Bridge — 面板状态更新、对话框
+// ═══════════════════════════════════════════════════════════
 MONITOR.ui = {
   notifyState: function(state, data) {
     if (typeof setStageText === 'function') setStageText(state);
@@ -99,6 +105,87 @@ MONITOR.ui = {
     });
   },
 
+  // 敏感操作确认对话框 — 用于 needsConfirmation 结果
+  showConfirmDialog: function(toolName, result) {
+    return new Promise(function(resolve) {
+      var overlay = document.getElementById('__ds-modal-overlay');
+      if (!overlay) { resolve({ confirmed: false }); return; }
+
+      var reason = result.reason || '此操作需要确认';
+      var explanation = result.explanation || '';
+      var command = result.command || '';
+      var filePath = result.path || '';
+      var safetyLevel = result.safetyLevel || '';
+
+      var levelLabel = { sensitive: '⚠️ 敏感操作', dangerous: '🚫 危险操作' };
+      var levelColor = { sensitive: '#f59e0b', dangerous: '#ef4444' };
+      var label = levelLabel[safetyLevel] || '⚠️ 需要确认';
+      var color = levelColor[safetyLevel] || '#f59e0b';
+
+      var detailHtml = '';
+      if (command) {
+        detailHtml += '<div style="margin:8px 0;"><strong>命令:</strong> <code style="background:rgba(0,0,0,0.1);padding:2px 6px;border-radius:3px;font-size:12px;">' + escapeAttr(command) + '</code></div>';
+      }
+      if (filePath) {
+        detailHtml += '<div style="margin:8px 0;"><strong>路径:</strong> <code style="background:rgba(0,0,0,0.1);padding:2px 6px;border-radius:3px;font-size:12px;">' + escapeAttr(filePath) + '</code></div>';
+      }
+      if (explanation) {
+        detailHtml += '<div style="margin:8px 0;color:var(--ds-text-secondary);font-size:13px;">' + escapeAttr(explanation) + '</div>';
+      }
+
+      var modal = document.createElement('div');
+      modal.id = '__ds-confirm-modal';
+      modal.className = 'ds-modal';
+      modal.style.cssText = 'display:block;position:relative;pointer-events:auto;';
+      modal.innerHTML = [
+        '<div class="ds-modal-title" style="border-left:4px solid ' + color + ';padding-left:10px;">' + label + '</div>',
+        '<div style="margin:12px 0;padding:10px;background:var(--ds-bg);border-radius:var(--ds-radius-sm);">',
+        '  <div style="margin-bottom:8px;font-weight:600;">' + escapeAttr(reason) + '</div>',
+        '  <div><strong>工具:</strong> ' + escapeAttr(toolName) + '</div>',
+        detailHtml,
+        '</div>',
+        '<div class="ds-modal-actions" style="pointer-events:auto;">',
+        '  <button class="ds-btn ds-btn-danger ds-btn-sm" id="__ds-confirm-deny" style="pointer-events:auto;cursor:pointer;position:relative;z-index:10;">拒绝</button>',
+        '  <button class="ds-btn ds-btn-success ds-btn-sm" id="__ds-confirm-ok" style="pointer-events:auto;cursor:pointer;position:relative;z-index:10;">确认执行</button>',
+        '</div>'
+      ].join('');
+
+      // 阻止 modal 内部点击冒泡到 overlay
+      modal.addEventListener('click', function(e) { e.stopPropagation(); });
+
+      overlay.innerHTML = '';
+      overlay.appendChild(modal);
+      overlay.classList.add('show');
+
+      // 使用 addEventListener 替代 onclick，更可靠
+      var okBtn = document.getElementById('__ds-confirm-ok');
+      var denyBtn = document.getElementById('__ds-confirm-deny');
+
+      function cleanup() {
+        if (okBtn) okBtn.removeEventListener('click', onConfirm);
+        if (denyBtn) denyBtn.removeEventListener('click', onDeny);
+        overlay.classList.remove('show');
+      }
+
+      function onConfirm(e) {
+        e.stopPropagation();
+        e.preventDefault();
+        cleanup();
+        resolve({ confirmed: true });
+      }
+
+      function onDeny(e) {
+        e.stopPropagation();
+        e.preventDefault();
+        cleanup();
+        resolve({ confirmed: false });
+      }
+
+      if (okBtn) okBtn.addEventListener('click', onConfirm);
+      if (denyBtn) denyBtn.addEventListener('click', onDeny);
+    });
+  },
+
   updatePanelStatus: function(text) {
     if (typeof setStageText === 'function') setStageText(text);
     var progressEl = document.getElementById('__ds-progress-indicator');
@@ -124,10 +211,9 @@ MONITOR.ui = {
   }
 };
 
-// ============================================================
-// Layer 4: Result Injector
-// 使用 content-script 全局函数 (dom/input.js)
-// ============================================================
+// ═══════════════════════════════════════════════════════════
+// § 2. Result Injector — 工具结果回注
+// ═══════════════════════════════════════════════════════════
 MONITOR.injector = {
   simplifyResult: function(r) {
     var toolName = r.tool || r.name || '';
@@ -144,7 +230,16 @@ MONITOR.injector = {
       }
       return out;
     }
-    if (data.blocked) { out.blocked = true; out.reason = data.reason || ''; return out; }
+    if (data.blocked) {
+      out.blocked = true;
+      out.reason = data.reason || '';
+      if (data.needsConfirmation) out.needsConfirmation = true;
+      if (data.explanation) out.explanation = data.explanation;
+      if (data.safetyLevel) out.safetyLevel = data.safetyLevel;
+      if (data.command) out.command = data.command;
+      if (data.path) out.path = data.path;
+      return out;
+    }
 
     if (toolName === 'read_file') {
       if (data.content) out.content = data.content;
@@ -242,14 +337,12 @@ MONITOR.injector = {
       try {
         if (typeof setInputValue === 'function') setInputValue(input, responseText);
         else input.value = responseText;
-        console.log('[Monitor] injectResults: 已设置输入框值 (' + responseText.length + '字)');
 
         setTimeout(function() {
           var sendOk = typeof clickSendButton === 'function' ? clickSendButton() : false;
           if (!sendOk) {
             input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
           }
-          console.log('[Monitor] injectResults: 发送按钮已点击 (clickSendButton=' + sendOk + ')');
           if (typeof logPanel === 'function') {
             logPanel('info', '📤 工具结果已发送 (clickSendButton=' + sendOk + ', 文本' + responseText.length + '字)');
           }
@@ -272,9 +365,9 @@ MONITOR.injector = {
   }
 };
 
-// ============================================================
-// Layer 3: Tool Coordinator
-// ============================================================
+// ═══════════════════════════════════════════════════════════
+// § 3. Tool Coordinator — AUTO/MANUAL/OFF 模式调度
+// ═══════════════════════════════════════════════════════════
 MONITOR.coordinator = {
   getToolMode: function(toolName) {
     if (!MONITOR.toolModesLoaded) {
@@ -321,6 +414,43 @@ MONITOR.coordinator = {
     try {
       var result = await executeSingleTool({ name: toolName, arguments: args }, (MONITOR.currentRound || {}).sessionId);
       result.tool = toolName;
+
+      // 检查约束拦截结果
+      var data = result.data || result;
+      if (data.blocked) {
+        if (data.needsConfirmation) {
+          // 敏感操作 — 弹出确认对话框
+          MONITOR.ui.notifyState('等待确认: ' + toolName, { level: 'warn', message: data.reason || '敏感操作需要确认' });
+          if (typeof logPanel === 'function') {
+            logPanel('warn', '⚠️ 需要确认: ' + toolName + ' — ' + (data.reason || ''));
+          }
+
+          var confirmResult = await MONITOR.ui.showConfirmDialog(toolName, data);
+          if (confirmResult.confirmed) {
+            // 用户确认 — 调用 /api/confirm 端点重新执行
+            if (typeof logPanel === 'function') {
+              logPanel('info', '✓ 用户已确认，重新执行: ' + toolName);
+            }
+            var confirmedResult = await executeConfirmedTool(toolName, args);
+            confirmedResult.tool = toolName;
+            return confirmedResult;
+          } else {
+            // 用户拒绝
+            if (typeof logPanel === 'function') {
+              logPanel('warn', '✗ 用户拒绝确认: ' + toolName);
+            }
+            return { success: false, error: '用户拒绝确认: ' + (data.reason || '敏感操作'), denied: true, tool: toolName };
+          }
+        } else {
+          // 危险操作 — 直接拦截，不可确认
+          MONITOR.ui.notifyState('已拦截: ' + toolName, { level: 'error', message: data.reason || '危险操作已被拦截' });
+          if (typeof logPanel === 'function') {
+            logPanel('error', '🚫 已拦截: ' + toolName + ' — ' + (data.reason || '危险操作'));
+          }
+          return { success: false, error: data.reason || '危险操作已被拦截', blocked: true, tool: toolName };
+        }
+      }
+
       return result;
     } catch(e) {
       return { success: false, error: '工具执行失败: ' + e.message, tool: toolName };
@@ -331,6 +461,9 @@ MONITOR.coordinator = {
     MONITOR.state = 'executing_tools';
     var results = [];
     var total = toolCalls.length;
+
+    // 工具执行时自动展开面板
+    if (typeof togglePanel === 'function') togglePanel(true);
 
     for (var i = 0; i < toolCalls.length; i++) {
       var call = toolCalls[i];
@@ -359,10 +492,9 @@ MONITOR.coordinator = {
   }
 };
 
-// ============================================================
-// Layer 2: Content Parser
-// 使用 content-script 全局函数 (dom/ai-message.js)
-// ============================================================
+// ═══════════════════════════════════════════════════════════
+// § 4. Content Parser — 从AI响应中提取工具调用
+// ═══════════════════════════════════════════════════════════
 MONITOR.parser = {
   parseToolCalls: function(text) { return parseToolCalls(text); },
   parseSingleCall: function(rawTag) { return parseSingleCall(rawTag); },
@@ -396,7 +528,13 @@ MONITOR.parser = {
       var now = Date.now();
       if (sse.active) return true;
       if (sse.streamEnded) return false;
-      if (sse.lastEventTime > 0 && (now - sse.lastEventTime) < 5000) {
+      if (sse.lastEventTime > 0 && (now - sse.lastEventTime) < SSE_TIMEOUT_MS) {
+        return false;
+      }
+      // SSE 已启用但既不 active 也没 streamEnded — 可能 stream_end 事件丢失
+      // 如果距离最后事件已超过阈值，认为流已结束
+      if (sse.lastEventTime > 0 && (now - sse.lastEventTime) >= SSE_TIMEOUT_MS) {
+        sse.streamEnded = true;
         return false;
       }
     }
@@ -410,10 +548,9 @@ MONITOR.parser = {
   }
 };
 
-// ============================================================
-// 共享函数: countUserMessages / getLatestUserText
-// (从 IIFE 中提取到全局，供 MONITOR.observer.start/stop 使用)
-// ============================================================
+// ═══════════════════════════════════════════════════════════
+// § 5. State Machine — 轮询状态机与工具调用处理
+// ═══════════════════════════════════════════════════════════
 function countUserMessages() {
   var all = document.querySelectorAll('div.ds-message');
   var count = 0;
@@ -440,9 +577,6 @@ function getLatestUserText() {
 var _monitorStartMsgCount = 0;
 var _lastDetectedUserText = '';
 
-// ============================================================
-// Layer 1: DOM Observer + State Machine
-// ============================================================
 MONITOR.observer = {
   start: function() {
     MONITOR.state = 'listening';
@@ -453,6 +587,7 @@ MONITOR.observer = {
     MONITOR._pollCount = 0;
     MONITOR._toolChainIterations = 0;
     MONITOR._noToolCallWaitCount = 0;
+    MONITOR._aiDoneLogged = false;
 
     _monitorStartMsgCount = countUserMessages();
     _lastDetectedUserText = getLatestUserText();
@@ -516,130 +651,183 @@ MONITOR.observer = {
     }
 
     var aiText = MONITOR.parser.getLatestAIText();
-    var isTextNew = (aiText !== MONITOR.lastAiText);
+    var isStreaming = MONITOR.parser.detectStreaming();
 
     // 心跳: 每50轮打印状态
     if (MONITOR._pollCount % 50 === 0 && typeof logPanel === 'function') {
+      var isTextNew = (aiText !== MONITOR.lastAiText);
       logPanel('info', '♥ poll#' + MONITOR._pollCount +
         ' state=' + MONITOR.state + ' aiLen=' + aiText.length +
         ' started=' + MONITOR.aiStarted + ' stable=' + MONITOR.stableCount +
         ' new=' + isTextNew);
     }
 
-    // ─── 文本驱动状态机 ───
-    if (isTextNew) {
-      // 如果 SSE 已检测到工具调用，不要让 DOM 文本差异重置 stableCount
-      if (MONITOR._sseToolCalls && MONITOR._sseToolCalls.length > 0) {
-        // SSE 已有工具调用结果，保持 stableCount 不变，等待触发
-        MONITOR.lastAiText = aiText; // 同步为 DOM 文本避免循环
-      } else {
-        MONITOR.lastAiText = aiText;
-        MONITOR._noToolCallWaitCount = 0;
-        if (aiText.length > 3) {
-          MONITOR.stableCount = 0;
+    // ─── 状态驱动调度 ───
+    var shouldReturn = false;
+    switch (MONITOR.state) {
+      case 'listening':
+        shouldReturn = MONITOR.observer._handleIdleState(aiText, isStreaming);
+        break;
+      case 'ai_streaming':
+        shouldReturn = MONITOR.observer._handleAIStreamingState(aiText, isStreaming);
+        break;
+      case 'ai_done':
+        shouldReturn = MONITOR.observer._handleAIDoneState(aiText);
+        break;
+      case 'executing_tools':
+        shouldReturn = MONITOR.observer._handleExecutingToolsState();
+        break;
+    }
 
-          if (!MONITOR.aiStarted) {
-            MONITOR.aiStarted = true;
-            MONITOR.state = 'ai_streaming';
-            MONITOR.ui.updatePanelStatus('AI生成中...');
-            var userMsg = typeof getLatestUserMessageText === 'function' ? getLatestUserMessageText() : '';
-            if (typeof logPanel === 'function' && userMsg.length > 0 && userMsg.indexOf('正在思考') !== 0) {
-              logPanel('info', '📤 用户消息(' + userMsg.length + '字): "' + userMsg.substring(0, 100) + '"');
-            } else if (typeof logPanel === 'function' && userMsg.length === 0) {
-              logPanel('info', '📤 用户消息(0字，可能是工具回填消息)');
-            }
-          }
-        }
-      }
-    } else if (MONITOR.aiStarted) {
-      // 文本没变化，递增稳定计数
-      // 注意: DOM innerText 可能丢失 <tool_call 标签内容导致 aiText 很短，
-      // 但 SSE 已结束且 aiStarted=true 时仍应递增 stableCount
-      MONITOR.stableCount++;
+    if (!shouldReturn) {
+      MONITOR.pollTimer = setTimeout(function() { MONITOR.observer.poll(); }, MONITOR.config.pollInterval);
+    }
+  },
 
-      if (MONITOR.stableCount >= MONITOR.config.stableThreshold) {
-        // ═══════════════════════════════════════════════════════
-        // 关键守卫: 流式输出必须确认已结束 (send button = arrow)
-        // 专家模式思考阶段可能有长停顿，stableCount 会提前达标，
-        // 此时绝不能判定为"已完成"，必须等流式真正结束。
-        // ═══════════════════════════════════════════════════════
-        var isStreaming = MONITOR.parser.detectStreaming();
-        if (isStreaming) {
-          if (MONITOR.stableCount % 10 === 0 && typeof logPanel === 'function') {
-            logPanel('info', '⏳ 流式仍在进行 (' + MONITOR.stableCount + '轮不变)，等待完成...');
-          }
-          MONITOR.pollTimer = setTimeout(function() { MONITOR.observer.poll(); }, MONITOR.config.pollInterval);
-          return;
-        }
+  // ── §5 子函数: listening 状态处理 ──────────────────────────
+  _handleIdleState: function(aiText, isStreaming) {
+    var isTextNew = (aiText !== MONITOR.lastAiText);
+    if (!isTextNew) return false;
 
-        MONITOR.state = 'ai_done';
-        MONITOR.ui.updatePanelStatus('AI已完成');
-        if (typeof logPanel === 'function') {
-          logPanel('info', '✅ AI回复稳定 (' + aiText.length + '字, ' + MONITOR.stableCount + '轮不变, 流式已结束)');
-        }
+    // 如果 SSE 已检测到工具调用，不要让 DOM 文本差异重置 stableCount
+    if (MONITOR._sseToolCalls && MONITOR._sseToolCalls.length > 0) {
+      MONITOR.lastAiText = aiText; // 同步为 DOM 文本避免循环
+      return false;
+    }
 
-        // 优先使用 SSE 原始文本解析工具调用（DOM innerText 会丢失 <tool_call 标签名）
-        var textForParsing = MONITOR._sseToolCallText || MONITOR.sse.endText || aiText;
-        var toolCalls = MONITOR.parser.parseToolCalls(textForParsing);
+    MONITOR.lastAiText = aiText;
+    MONITOR._noToolCallWaitCount = 0;
+    if (aiText.length > 3) {
+      MONITOR.stableCount = 0;
 
-        // 清理 SSE 缓存
-        MONITOR._sseToolCalls = null;
-        MONITOR._sseToolCallText = null;
-
-        if (toolCalls.length > 0) {
-          MONITOR._preToolAiText = aiText;
-          MONITOR.currentRound.toolCalls = toolCalls;
-          MONITOR.currentRound.aiMessageText = aiText;
-          if (typeof logPanel === 'function') {
-            logPanel('info', '🔧 工具调用: ' +
-              toolCalls.map(function(c) { return c.name + ' ' + JSON.stringify(c.arguments).substring(0, 60); }).join(', '));
-          }
-          MONITOR.ui.notifyState('检测到工具调用', {
-            level: 'info',
-            message: '检测到 ' + toolCalls.length + ' 个工具调用: ' + toolCalls.map(function(c) { return c.name; }).join(', ')
-          });
-          MONITOR.observer.handleToolCalls(toolCalls);
-          return;
-        } else {
-          if (aiText.indexOf('<tool_response') >= 0) {
-            if (typeof logPanel === 'function') {
-              logPanel('info', '🔄 检测到工具回填消息，继续等待AI处理...');
-            }
-            MONITOR.state = 'listening';
-            MONITOR.lastAiText = '';
-            MONITOR.stableCount = 0;
-            MONITOR.aiStarted = false;
-            MONITOR._noToolCallWaitCount = 0;
-            MONITOR.pollTimer = setTimeout(function() { MONITOR.observer.poll(); }, MONITOR.config.pollInterval);
-            return;
-          }
-
-          if (!MONITOR._noToolCallWaitCount) MONITOR._noToolCallWaitCount = 0;
-
-          if (MONITOR._noToolCallWaitCount < 15) {
-            MONITOR._noToolCallWaitCount++;
-            if (MONITOR._noToolCallWaitCount === 1 && typeof logPanel === 'function') {
-              logPanel('info', '⏸ 无工具调用，二次确认等待中... (文本' + aiText.length + '字, 最多等3秒)');
-            }
-            MONITOR.pollTimer = setTimeout(function() { MONITOR.observer.poll(); }, MONITOR.config.pollInterval);
-            return;
-          }
-
-          MONITOR._noToolCallWaitCount = 0;
-
-          if (typeof logPanel === 'function') {
-            logPanel('info', '💬 普通文本: "' + aiText.substring(0, 150).replace(/\n/g, ' ') + '"');
-          }
-          MONITOR.ui.notifyState('无工具调用', { level: 'info', message: 'AI 未请求工具调用，对话轮次结束，监控已停止' });
-          MONITOR.observer.stop('轮次结束');
-          if (typeof autoMode !== 'undefined') autoMode = false;
-          MONITOR.ui.updatePanelStatus('就绪');
-          return;
+      if (!MONITOR.aiStarted) {
+        MONITOR.aiStarted = true;
+        MONITOR.state = 'ai_streaming';
+        MONITOR.ui.updatePanelStatus('AI生成中...');
+        var userMsg = typeof getLatestUserMessageText === 'function' ? getLatestUserMessageText() : '';
+        if (typeof logPanel === 'function' && userMsg.length > 0 && userMsg.indexOf('正在思考') !== 0) {
+          logPanel('info', '📤 用户消息(' + userMsg.length + '字): "' + userMsg.substring(0, 100) + '"');
+        } else if (typeof logPanel === 'function' && userMsg.length === 0) {
+          logPanel('info', '📤 用户消息(0字，可能是工具回填消息)');
         }
       }
     }
+    return false;
+  },
 
-    MONITOR.pollTimer = setTimeout(function() { MONITOR.observer.poll(); }, MONITOR.config.pollInterval);
+  // ── §5 子函数: ai_streaming 状态处理 ──────────────────────
+  _handleAIStreamingState: function(aiText, isStreaming) {
+    var isTextNew = (aiText !== MONITOR.lastAiText);
+
+    if (isTextNew) {
+      MONITOR.lastAiText = aiText;
+      MONITOR._noToolCallWaitCount = 0;
+      if (aiText.length > 3) {
+        MONITOR.stableCount = 0;
+      }
+      return false;
+    }
+
+    // 文本没变化，递增稳定计数
+    // 注意: DOM innerText 可能丢失 <tool_call 标签内容导致 aiText 很短，
+    // 但 SSE 已结束且 aiStarted=true 时仍应递增 stableCount
+    MONITOR.stableCount++;
+
+    if (MONITOR.stableCount < MONITOR.config.stableThreshold) {
+      return false;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 关键守卫: 流式输出必须确认已结束 (send button = arrow)
+    // 专家模式思考阶段可能有长停顿，stableCount 会提前达标，
+    // 此时绝不能判定为"已完成"，必须等流式真正结束。
+    // ═══════════════════════════════════════════════════════
+    if (isStreaming) {
+      if (MONITOR.stableCount % 10 === 0 && typeof logPanel === 'function') {
+        logPanel('info', '⏳ 流式仍在进行 (' + MONITOR.stableCount + '轮不变)，等待完成...');
+      }
+      return false;
+    }
+
+    // AI 已完成 — 转移到 ai_done 状态
+    MONITOR.state = 'ai_done';
+    MONITOR.ui.updatePanelStatus('AI已完成');
+    // 只在首次稳定时记录日志，避免重复
+    if (MONITOR._aiDoneLogged !== true) {
+      MONITOR._aiDoneLogged = true;
+      if (typeof logPanel === 'function') {
+        logPanel('info', '✅ AI回复稳定 (' + aiText.length + '字, 流式已结束)');
+      }
+    }
+
+    // 委托给 ai_done 处理器
+    return MONITOR.observer._handleAIDoneState(aiText);
+  },
+
+  // ── §5 子函数: ai_done 状态处理 ───────────────────────────
+  _handleAIDoneState: function(aiText) {
+    // 优先使用 SSE 原始文本解析工具调用（DOM innerText 会丢失 <tool_call 标签名）
+    var textForParsing = MONITOR._sseToolCallText || MONITOR.sse.endText || aiText;
+    var toolCalls = MONITOR.parser.parseToolCalls(textForParsing);
+
+    // 清理 SSE 缓存
+    MONITOR._sseToolCalls = null;
+    MONITOR._sseToolCallText = null;
+
+    if (toolCalls.length > 0) {
+      MONITOR._preToolAiText = aiText;
+      MONITOR.currentRound.toolCalls = toolCalls;
+      MONITOR.currentRound.aiMessageText = aiText;
+      if (typeof logPanel === 'function') {
+        logPanel('info', '🔧 工具调用: ' +
+          toolCalls.map(function(c) { return c.name + ' ' + JSON.stringify(c.arguments).substring(0, 60); }).join(', '));
+      }
+      MONITOR.ui.notifyState('检测到工具调用', {
+        level: 'info',
+        message: '检测到 ' + toolCalls.length + ' 个工具调用: ' + toolCalls.map(function(c) { return c.name; }).join(', ')
+      });
+      MONITOR.observer.handleToolCalls(toolCalls);
+      return true; // handleToolCalls 管理后续轮询
+    }
+
+    if (aiText.indexOf('<tool_response') >= 0) {
+      if (typeof logPanel === 'function') {
+        logPanel('info', '🔄 检测到工具回填消息，继续等待AI处理...');
+      }
+      MONITOR.state = 'listening';
+      MONITOR.lastAiText = '';
+      MONITOR.stableCount = 0;
+      MONITOR.aiStarted = false;
+      MONITOR._noToolCallWaitCount = 0;
+      return false; // 继续轮询 listening 状态
+    }
+
+    if (!MONITOR._noToolCallWaitCount) MONITOR._noToolCallWaitCount = 0;
+
+    if (MONITOR._noToolCallWaitCount < 15) {
+      MONITOR._noToolCallWaitCount++;
+      if (MONITOR._noToolCallWaitCount === 1 && typeof logPanel === 'function') {
+        logPanel('info', '⏸ 无工具调用，二次确认等待中... (文本' + aiText.length + '字, 最多等3秒)');
+      }
+      return false; // 继续轮询等待确认
+    }
+
+    MONITOR._noToolCallWaitCount = 0;
+
+    if (typeof logPanel === 'function') {
+      logPanel('info', '💬 普通文本: "' + aiText.substring(0, 150).replace(/\n/g, ' ') + '"');
+    }
+    MONITOR.ui.notifyState('无工具调用', { level: 'info', message: 'AI 未请求工具调用，对话轮次结束，监控已停止' });
+    MONITOR.observer.stop('轮次结束');
+    if (typeof autoMode !== 'undefined') autoMode = false;
+    MONITOR.ui.updatePanelStatus('就绪');
+    return true; // 停止轮询
+  },
+
+  // ── §5 子函数: executing_tools 状态处理 ────────────────────
+  _handleExecutingToolsState: function() {
+    // 工具异步执行中，继续轮询等待状态变化
+    return false;
   },
 
   handleToolCalls: async function(toolCalls) {
@@ -652,58 +840,11 @@ MONITOR.observer = {
     try {
       var results = await MONITOR.coordinator.executeAll(toolCalls);
 
-      MONITOR._lastExecutedTool = MONITOR._lastExecutedTool || '';
-      MONITOR._consecutiveSameTool = MONITOR._consecutiveSameTool || 0;
-      MONITOR._consecutiveFailures = MONITOR._consecutiveFailures || 0;
-      MONITOR._circuitBreakerTriggered = MONITOR._circuitBreakerTriggered || false;
-
-      var allFailed = true;
-      var currentTool = toolCalls[0] ? (toolCalls[0].name || toolCalls[0]) : '';
-      for (var ri = 0; ri < results.length; ri++) {
-        if (results[ri].success) { allFailed = false; break; }
+      if (MONITOR.observer._checkCircuitBreaker(toolCalls)) {
+        return;
       }
 
-      if (currentTool === MONITOR._lastExecutedTool) {
-        MONITOR._consecutiveSameTool++;
-      } else {
-        MONITOR._consecutiveSameTool = 1;
-        MONITOR._consecutiveFailures = 0;
-        MONITOR._lastExecutedTool = currentTool;
-      }
-
-      if (allFailed) {
-        MONITOR._consecutiveFailures++;
-        console.log('[Monitor] 连续失败: ' + MONITOR._consecutiveFailures + '/' + DS_CONFIG.circuitBreaker.maxConsecutiveFails + ' 工具=' + currentTool);
-        if (MONITOR._consecutiveFailures >= DS_CONFIG.circuitBreaker.maxConsecutiveFails) {
-          MONITOR._circuitBreakerTriggered = true;
-          MONITOR.ui.notifyState('熔断', { level: 'error', message: '工具 ' + currentTool + ' 连续失败 ' + MONITOR._consecutiveFailures + ' 次，已触发熔断' });
-          if (typeof logPanel === 'function') logPanel('error', '熔断触发: ' + currentTool + ' 连续失败 ' + MONITOR._consecutiveFailures + ' 次');
-          MONITOR.observer.stop('circuit_breaker');
-          if (typeof autoMode !== 'undefined') autoMode = false;
-          if (typeof updateAutoButtonState === 'function') updateAutoButtonState();
-          return;
-        }
-      } else {
-        MONITOR._consecutiveFailures = 0;
-      }
-
-      if (MONITOR._consecutiveSameTool >= (DS_CONFIG.circuitBreaker.maxConsecutiveFails * 2)) {
-        console.log('[Monitor] AI 重复请求同一工具 ' + MONITOR._consecutiveSameTool + ' 次，可能陷入重试循环');
-        if (typeof logPanel === 'function') logPanel('warn', 'AI 可能陷入重试循环，已请求 ' + currentTool + ' 共 ' + MONITOR._consecutiveSameTool + ' 次');
-      }
-
-      window.postMessage({
-        type: '__ds_tool_results',
-        toolCalls: toolCalls,
-        results: results.map(function(r) { return { tool: r.tool || r.name, success: r.success, error: r.error || undefined }; }),
-        round: MONITOR._toolChainIterations + 1,
-        timestamp: Date.now()
-      }, '*');
-
-      var injected = await MONITOR.injector.injectResults(results);
-      if (injected) {
-        MONITOR.ui.notifyState('结果已注入', { level: 'success', message: '工具执行结果已注入，等待AI后续响应' });
-      }
+      await MONITOR.observer._injectToolResults(results);
     } catch(e) {
       console.error('[Monitor] handleToolCalls 异常:', e.message);
       if (typeof logPanel === 'function') logPanel('error', '工具调用处理失败: ' + e.message);
@@ -712,12 +853,72 @@ MONITOR.observer = {
       if (typeof updateAutoButtonState === 'function') updateAutoButtonState();
       return;
     }
+  },
+
+  // ── §5 子函数: 熔断器检查 ─────────────────────────────────
+  _checkCircuitBreaker: function(toolCalls) {
+    var results = MONITOR.currentRound.executedResults;
+
+    MONITOR._lastExecutedTool = MONITOR._lastExecutedTool || '';
+    MONITOR._consecutiveSameTool = MONITOR._consecutiveSameTool || 0;
+    MONITOR._consecutiveFailures = MONITOR._consecutiveFailures || 0;
+    MONITOR._circuitBreakerTriggered = MONITOR._circuitBreakerTriggered || false;
+
+    var allFailed = true;
+    var currentTool = toolCalls[0] ? (toolCalls[0].name || toolCalls[0]) : '';
+    for (var ri = 0; ri < results.length; ri++) {
+      if (results[ri].success) { allFailed = false; break; }
+    }
+
+    if (currentTool === MONITOR._lastExecutedTool) {
+      MONITOR._consecutiveSameTool++;
+    } else {
+      MONITOR._consecutiveSameTool = 1;
+      MONITOR._consecutiveFailures = 0;
+      MONITOR._lastExecutedTool = currentTool;
+    }
+
+    if (allFailed) {
+      MONITOR._consecutiveFailures++;
+      if (MONITOR._consecutiveFailures >= DS_CONFIG.circuitBreaker.maxConsecutiveFails) {
+        MONITOR._circuitBreakerTriggered = true;
+        MONITOR.ui.notifyState('熔断', { level: 'error', message: '工具 ' + currentTool + ' 连续失败 ' + MONITOR._consecutiveFailures + ' 次，已触发熔断' });
+        if (typeof logPanel === 'function') logPanel('error', '熔断触发: ' + currentTool + ' 连续失败 ' + MONITOR._consecutiveFailures + ' 次');
+        MONITOR.observer.stop('circuit_breaker');
+        if (typeof autoMode !== 'undefined') autoMode = false;
+        if (typeof updateAutoButtonState === 'function') updateAutoButtonState();
+        return true;
+      }
+    } else {
+      MONITOR._consecutiveFailures = 0;
+    }
+
+    if (MONITOR._consecutiveSameTool >= (DS_CONFIG.circuitBreaker.maxConsecutiveFails * 2)) {
+      if (typeof logPanel === 'function') logPanel('warn', 'AI 可能陷入重试循环，已请求 ' + currentTool + ' 共 ' + MONITOR._consecutiveSameTool + ' 次');
+    }
+
+    return false;
+  },
+
+  // ── §5 子函数: 结果注入与恢复 ─────────────────────────────
+  _injectToolResults: async function(results) {
+    window.postMessage({
+      type: '__ds_tool_results',
+      toolCalls: MONITOR.currentRound.toolCalls,
+      results: results.map(function(r) { return { tool: r.tool || r.name, success: r.success, error: r.error || undefined }; }),
+      round: MONITOR._toolChainIterations + 1,
+      timestamp: Date.now()
+    }, '*');
+
+    var injected = await MONITOR.injector.injectResults(results);
+    if (injected) {
+      MONITOR.ui.notifyState('结果已注入', { level: 'success', message: '工具执行结果已注入，等待AI后续响应' });
+    }
 
     if (MONITOR._resumeTimer) clearTimeout(MONITOR._resumeTimer);
 
     MONITOR._toolChainIterations++;
     if (MONITOR._toolChainIterations > MONITOR.config.maxToolIterations) {
-      console.log('[Monitor] 工具链已达最大迭代 (' + MONITOR._toolChainIterations + ')，停止');
       if (typeof logPanel === 'function') logPanel('warn', '工具链已达最大迭代次数 (' + MONITOR._toolChainIterations + ')，自动停止');
       MONITOR.observer.stop('超限');
       if (typeof autoMode !== 'undefined') autoMode = false;
@@ -790,7 +991,7 @@ setInterval(function() {
   }
 
   var stuckMs = Date.now() - _monitorStateTimestamp;
-  if ((MONITOR.state === 'ai_streaming' || MONITOR.state === 'executing_tools') && stuckMs > 180000) {
+  if ((MONITOR.state === 'ai_streaming' || MONITOR.state === 'executing_tools') && stuckMs > MONITOR_STATE_TIMEOUT) {
     console.warn('[Monitor] 状态卡在 ' + MONITOR.state + ' 超过 ' + Math.round(stuckMs/1000) + 's，强制恢复');
     if (typeof logPanel === 'function') {
       logPanel('warn', '⚠️ Monitor 状态超时，自动恢复 (stuck in ' + MONITOR.state + ' for ' + Math.round(stuckMs/1000) + 's)');
@@ -856,12 +1057,10 @@ window.addEventListener('message', function(event) {
   }
 });
 
-console.log('[Monitor] 输入监控模块已加载 (v2.6 SSE模式)');
 
-// ============================================================
-// Layer 0: SSE Stream Event Handlers
-// 监听 injected.js 发出的 SSE 流事件
-// ============================================================
+// ═══════════════════════════════════════════════════════════
+// § 6. SSE Event Handler — 监听 injected.js 发出的 SSE 流事件
+// ═══════════════════════════════════════════════════════════
 window.addEventListener('message', function(event) {
   if (!event.data || typeof event.data !== 'object') return;
   if (event.data.source !== 'ai-tool-agent' && event.data.source !== 'deepseek-tool-agent') return;
@@ -884,7 +1083,6 @@ window.addEventListener('message', function(event) {
       }
 
       if (MONITOR.state !== 'idle') {
-        console.log('[Monitor] SSE 流到达时 MONITOR 非 idle(' + MONITOR.state + ')，强制停止旧监控并重启');
         if (MONITOR.pollTimer) { clearTimeout(MONITOR.pollTimer); MONITOR.pollTimer = null; }
         if (MONITOR._resumeTimer) { clearTimeout(MONITOR._resumeTimer); MONITOR._resumeTimer = null; }
         MONITOR.state = 'idle';
@@ -919,7 +1117,6 @@ window.addEventListener('message', function(event) {
         // 立即从 SSE 原始文本解析工具调用
         var sseToolCalls = MONITOR.parser.parseToolCalls(MONITOR.sse.endText);
         if (sseToolCalls.length > 0) {
-          console.log('[Monitor] SSE原始文本检测到 ' + sseToolCalls.length + ' 个工具调用（绕过DOM丢失）');
           MONITOR._sseToolCalls = sseToolCalls;
           MONITOR._sseToolCallText = MONITOR.sse.endText;
 
@@ -931,7 +1128,6 @@ window.addEventListener('message', function(event) {
 
           // 如果轮询没在运行，立即启动
           if (!MONITOR.pollTimer && MONITOR.state !== 'idle') {
-            console.log('[Monitor] 轮询未运行，立即启动');
             MONITOR.observer.poll();
           }
         }
@@ -939,14 +1135,13 @@ window.addEventListener('message', function(event) {
       break;
 
     case '__ds_heartbeat_injected_ack':
-      console.log('[Monitor] SSE 注入验证通过: alive=' + event.data.alive + ', fetchPatched=' + event.data.fetchPatched + ', streamActive=' + event.data.streamActive);
       break;
   }
 });
 
-// ============================================================
-// Extension Context 守卫 (参考 DeepSeek++)
-// ============================================================
+// ═══════════════════════════════════════════════════════════
+// § 7. Extension Context Guard — 扩展上下文守卫
+// ═══════════════════════════════════════════════════════════
 (function() {
   var _contextValid = true;
 
@@ -979,6 +1174,9 @@ window.addEventListener('message', function(event) {
 })();
 
 (function() {
+  // ═══════════════════════════════════════════════════════════
+  // § 8. User Message Detection — 用户消息检测与自动启动
+  // ═══════════════════════════════════════════════════════════
   var lastUserMsgCount = 0;
 
   // countUserMessages, getLatestUserText, _lastDetectedUserText, _monitorStartMsgCount
@@ -1002,7 +1200,6 @@ window.addEventListener('message', function(event) {
       _monitorStartMsgCount = currentCount;
       _lastDetectedUserText = currentText;
       lastUserMsgCount = currentCount;
-      console.log('[Monitor] 检测到用户新消息 (count=' + currentCount + ', text=' + (currentText ? currentText.substring(0, 30) : '(空)') + ') 自动重启监控');
       if (typeof logPanel === 'function') logPanel('info', '检测到用户新消息，自动启动监控');
       MONITOR.observer.start();
     }
@@ -1012,7 +1209,6 @@ window.addEventListener('message', function(event) {
 
   var _visibilityFired = 0;
   var _monitorStuckSince = 0;
-  var MONITOR_STUCK_TIMEOUT = 5 * 60 * 1000;
 
   function forceCheckVisibility() {
     _visibilityFired++;
@@ -1024,7 +1220,6 @@ window.addEventListener('message', function(event) {
       if (!_monitorStuckSince) {
         _monitorStuckSince = Date.now();
       } else if (Date.now() - _monitorStuckSince > MONITOR_STUCK_TIMEOUT) {
-        console.log('[Monitor] MONITOR 卡在 ' + MONITOR.state + ' 超过 ' + (MONITOR_STUCK_TIMEOUT/60000) + ' 分钟，强制恢复为 idle');
         if (typeof logPanel === 'function') logPanel('warn', 'MONITOR 状态卡死(' + MONITOR.state + ')，强制恢复');
         MONITOR.state = 'idle';
         if (MONITOR.pollTimer) { clearTimeout(MONITOR.pollTimer); MONITOR.pollTimer = null; }
@@ -1055,10 +1250,9 @@ window.addEventListener('message', function(event) {
     forceCheckVisibility();
   });
 
-  // ============================================================
-  // SW KeepAlive — 长连接端口防止 Service Worker 被闲置超时终止
-  // Chrome MV3 默认 30 秒无消息即终止 SW，此端口保持连接活跃
-  // ============================================================
+  // ═══════════════════════════════════════════════════════════
+  // § 9. KeepAlive & Service Worker — 长连接保活
+  // ═══════════════════════════════════════════════════════════
   var _keepalivePort = null;
   var _keepaliveInterval = null;
   var _keepaliveGeneration = 0;
@@ -1077,14 +1271,12 @@ window.addEventListener('message', function(event) {
           _keepalivePort = null;
         }
         if (gen === _keepaliveGeneration) {
-          console.log('[Monitor] KeepAlive 端口断开，3秒后重连（gen=' + gen + '）');
           setTimeout(establishKeepAlive, 3000);
         }
       });
       port.onMessage.addListener(function() {
         // 心跳响应到达，SW 仍然存活
       });
-      console.log('[Monitor] KeepAlive 端口已建立（gen=' + gen + '）');
 
       // SW 重连后验证 injected.js 是否存活
       setTimeout(function() {
@@ -1104,13 +1296,11 @@ window.addEventListener('message', function(event) {
     // 验证 injected.js 在页面上下文中是否存活
     try {
       window.postMessage({ type: '__ds_heartbeat_injected', timestamp: Date.now() }, '*');
-      console.log('[Monitor] 已发送 SSE 注入验证心跳');
     } catch(e) {
       console.warn('[Monitor] SSE 注入验证失败: ' + e.message);
     }
     // 如果监控之前是收听状态但现在停止了，重新启动
     if (MONITOR.state === 'idle' && typeof autoWatchRunning !== 'undefined' && autoWatchRunning) {
-      console.log('[Monitor] SW 重连后监控状态正常（idle），等待用户消息自动触发');
     }
   }
 
@@ -1132,6 +1322,9 @@ window.addEventListener('message', function(event) {
   // Chrome 允许内容脚本创建长连接端口，SW 只要有活跃端口就不会被终止
   // 20 秒一次心跳 < 30 秒超时阈值
 
+  // ═══════════════════════════════════════════════════════════
+  // § 10. MutationObserver — DOM 变动监听
+  // ═══════════════════════════════════════════════════════════
   var observer = new MutationObserver(function(mutations) {
     for (var i = 0; i < mutations.length; i++) {
       var added = mutations[i].addedNodes;
@@ -1157,7 +1350,6 @@ window.addEventListener('message', function(event) {
       observer.disconnect();
       _observedBody = document.body;
       observer.observe(_observedBody, { childList: true, subtree: true });
-      console.log('[Monitor] MutationObserver 检测到 document.body 替换，已重新绑定');
     }
   }, 5000);
 })();

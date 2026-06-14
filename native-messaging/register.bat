@@ -3,7 +3,7 @@ chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 echo ============================================
-echo  DeepSeek Tool Agent v2.6 — Native Host 注册
+echo  DeepSeek Tool Agent v0.1.1 — Native Host 注册
 echo ============================================
 
 set "SCRIPT_DIR=%~dp0"

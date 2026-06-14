@@ -1,10 +1,19 @@
 // ============================================================
-// DeepSeek Tool Agent v2.5 — Actions (纯 API + 辅助函数)
+// AI Tool Agent v0.1.1 — Actions (纯 API + 辅助函数)
 // 不包含 UI 渲染代码，所有UI由 panel.js 负责
 // ============================================================
 
+// ═══════════════════════════════════════════════════════════
+// § 1. API 客户端 — HTTP 请求封装
+// ═══════════════════════════════════════════════════════════
+
 var getApiBase = function() { return getServerUrl(); };
-var FETCH_TIMEOUT = 5000;
+var API_TIMEOUT_MS = 5000;
+var FEISHU_INJECT_COOLDOWN_MS = 5000;
+var FEISHU_DEDUP_WINDOW_MS = 15000;
+var FEISHU_REPLY_TIMEOUT_MS = 120000;
+var AI_REPLY_TRUNCATE_LEN = 3000;
+var FETCH_TIMEOUT = API_TIMEOUT_MS;
 
 function apiFetch(path, body) {
   var options = {
@@ -21,13 +30,10 @@ function apiGet(path) { return apiFetch(path, null); }
 function apiJson(path, body) { return apiFetch(path, body).then(function(r) { return r.json(); }); }
 function apiGetJson(path) { return apiGet(path).then(function(r) { return r.json(); }); }
 
-// ============================================================
-// Agent 初始化 — v2.5: 对话式引导画像构建（借鉴 OpenClaw onboarding）
-// 首次会话 → AI引导用户完成身份/灵魂/画像对话 → 写入记忆
-// 后续会话 → AI从记忆加载画像 → 用已设定人格交互
-// ============================================================
+// ═══════════════════════════════════════════════════════════
+// § 2. Agent Initialization — 对话式引导画像构建
+// ═══════════════════════════════════════════════════════════
 async function initAgent() {
-  console.log('[actions] initAgent 开始');
   logPanel('info', '正在检查记忆状态...');
 
   var isFirstTime = true;
@@ -54,7 +60,7 @@ async function initAgent() {
     clickSendButton();
     logPanel('success', isFirstTime ? '首次设置提示已发送' : '记忆恢复提示已发送');
   } else {
-    logPanel('error', '找不到 DeepSeek 输入框');
+    logPanel('error', '找不到输入框');
   }
 
   autoMode = true;
@@ -93,7 +99,7 @@ async function smartAgentAction() {
     clickSendButton();
     logPanel('success', '已发送记忆恢复指令');
   } else {
-    logPanel('error', '找不到 DeepSeek 输入框');
+    logPanel('error', '找不到输入框');
     return false;
   }
 
@@ -217,15 +223,14 @@ function buildRecallPrompt() {
   ].join('\n');
 }
 
-// ============================================================
-// 快捷操作
-// ============================================================
+// ═══════════════════════════════════════════════════════════
+// § 8. Quick Actions — 快捷操作
+// ═══════════════════════════════════════════════════════════
 async function triggerQuickAction(promptOrIndex) {
   var prompt;
 
   // 支持两种调用方式：传字符串直接使用，传数字从后端获取
   if (typeof promptOrIndex === 'number') {
-    console.log('[actions] triggerQuickAction index=' + promptOrIndex);
     try {
       var resp = await apiGetJson('/api/agent/quick-actions');
       if (resp.success && resp.actions && resp.actions.length > promptOrIndex) {
@@ -254,10 +259,13 @@ async function triggerQuickAction(promptOrIndex) {
     clickSendButton();
     logPanel('success', '快捷操作已发送');
   } else {
-    logPanel('error', '找不到 DeepSeek 输入框');
+    logPanel('error', '找不到输入框');
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+// § 3. Tool Prompt Injection — 工具提示词注入
+// ═══════════════════════════════════════════════════════════
 async function injectToolPrompt() {
   logPanel('info', '正在获取实时工具列表...');
   try {
@@ -315,16 +323,16 @@ async function injectToolPrompt() {
       clickSendButton();
       logPanel('success', '工具提示词已注入 (' + tools.length + ' 个工具, 含插件)');
     } else {
-      logPanel('error', '找不到 DeepSeek 输入框');
+      logPanel('error', '找不到输入框');
     }
   } catch(e) {
     logPanel('error', '注入工具提示词失败: ' + e.message);
   }
 }
 
-// ============================================================
-// 人格管理 (纯 API，不操作 DOM)
-// ============================================================
+// ═══════════════════════════════════════════════════════════
+// § 4. Personality Management — 人格管理
+// ═══════════════════════════════════════════════════════════
 async function loadPersonality() {
   try {
     var data = await apiGetJson('/api/agent/personality');
@@ -351,9 +359,9 @@ async function resetPersonality() {
   return false;
 }
 
-// ============================================================
-// 记忆管理
-// ============================================================
+// ═══════════════════════════════════════════════════════════
+// § 5. Memory Management — 记忆管理
+// ═══════════════════════════════════════════════════════════
 async function initMemory() {
   try {
     var data = await apiJson('/api/agent/memory', { action: 'init' });
@@ -389,9 +397,9 @@ async function saveMemory(key, data) {
   } catch(e) { logPanel('error', '保存记忆失败: ' + e.message); }
 }
 
-// ============================================================
-// 技能管理
-// ============================================================
+// ═══════════════════════════════════════════════════════════
+// § 6. Skills Management — 技能管理
+// ═══════════════════════════════════════════════════════════
 async function loadSkills() {
   try {
     var data = await apiGetJson('/api/agent/skills');
@@ -433,9 +441,9 @@ async function deleteSkill(name) {
   return false;
 }
 
-// ============================================================
-// 工具管理
-// ============================================================
+// ═══════════════════════════════════════════════════════════
+// § 7. Tools Management — 工具管理
+// ═══════════════════════════════════════════════════════════
 async function loadTools() {
   try {
     var data = await apiGetJson('/api/agent/tools');
@@ -458,9 +466,7 @@ async function setToolMode(name, mode) {
   return false;
 }
 
-// ============================================================
-// 快捷操作 API
-// ============================================================
+// ── §8 续: Quick Actions API ──────────────────────────────
 async function loadQuickActions() {
   try {
     var data = await apiGetJson('/api/agent/quick-actions');
@@ -481,9 +487,9 @@ async function saveQuickActions(actions) {
   return false;
 }
 
-// ============================================================
-// 系统管理
-// ============================================================
+// ═══════════════════════════════════════════════════════════
+// § 9. System Management — 系统管理、面板同步
+// ═══════════════════════════════════════════════════════════
 async function checkServerHealth() {
   try {
     var data = await apiGetJson('/health');
@@ -534,11 +540,8 @@ async function getConfig() {
   } catch(e) { return null; }
 }
 
-// ============================================================
-// 面板同步
-// ============================================================
+// ── §9 续: 面板同步 ──────────────────────────────────────
 async function syncFullState() {
-  console.log('[actions] syncFullState 开始');
   logPanel('info', '正在同步完整状态...');
   try {
     var status = await apiGetJson('/api/agent/status');
@@ -559,41 +562,13 @@ async function syncFullState() {
 // ============================================================
 // 导出日志
 // ============================================================
-function exportLogsDownload() {
-  if (!executionHistory || executionHistory.length === 0) {
-    logPanel('warn', '没有可导出的日志');
-    return;
-  }
-  var lines = [];
-  for (var i = 0; i < executionHistory.length; i++) {
-    var log = executionHistory[i];
-    lines.push('[' + (log.time || '') + '] [' + (log.level || 'info') + '] ' + (log.message || ''));
-  }
-  var blob = new Blob([lines.join('\n')], { type: 'text/plain' });
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement('a');
-  a.href = url;
-  a.download = 'agent-logs-' + new Date().toISOString().split('T')[0] + '.txt';
-  a.click();
-  URL.revokeObjectURL(url);
-  logPanel('success', '日志已导出');
-}
+// exportLogsDownload is defined in core/logger.js (loaded first)
 
 // ============================================================
 // 工具端点映射
 // ============================================================
-function getToolEndpoint(toolName) {
-  return {
-    path: '/exec',
-    body: function(args) { return { tool: toolName, args: args }; }
-  };
-}
-
-// ============================================================
-// 本地日志 (供旧代码兼容)
-// ============================================================
-function persistLocalLogs() {}
-function getLocalLogs() { return []; }
+// getToolEndpoint is defined in core/executor.js (loaded first)
+// persistLocalLogs and getLocalLogs are defined in core/logger.js (loaded first)
 
 window.__ds_viewRawLogs = function() {
   persistLocalLogs();
@@ -604,17 +579,19 @@ window.__ds_viewRawLogs = function() {
   previewEl.scrollTop = previewEl.scrollHeight;
 };
 
-// ============================================================
-// 飞书桥接 — 轮询消息队列，自动注入到 DeepSeek 聊天
-// ============================================================
-var feishuPollTimer = null;
-var feishuLastProcessedId = null;
-var feishuPendingReplies = {};
-var feishuReplyWatcherTimer = null;
-var feishuInjectedKeys = [];
-var feishuLastInjectTime = 0;
-var FEISHU_INJECT_COOLDOWN = 5000;
-var FEISHU_DEDUP_WINDOW = 15000;
+// ═══════════════════════════════════════════════════════════
+// § 10. Feishu Bridge — 飞书桥接
+// ═══════════════════════════════════════════════════════════
+
+// ── 飞书桥接状态变量 ──────────────────────────────────────
+var feishuPollTimer = null;           // 轮询定时器
+var feishuLastProcessedId = null;     // 上次处理的消息 ID
+var feishuPendingReplies = {};        // 等待回复的消息 { msgId: { chatId, startTime, awaitingReply, replySent } }
+var feishuReplyWatcherTimer = null;   // 回复监听定时器
+var feishuInjectedKeys = [];          // 已注入消息的去重键列表
+var feishuLastInjectTime = 0;         // 上次注入时间戳
+var FEISHU_INJECT_COOLDOWN = FEISHU_INJECT_COOLDOWN_MS;  // 注入冷却时间
+var FEISHU_DEDUP_WINDOW = FEISHU_DEDUP_WINDOW_MS;        // 去重窗口时间
 
 function hashFeishuKey(senderId, content) {
   var h = 0;
@@ -639,7 +616,6 @@ function isFeishuDuplicate(msg) {
 
 function startFeishuBridge() {
   if (feishuPollTimer) return;
-  console.log('[feishu-bridge] 启动飞书消息桥接 (3s 轮询)');
   feishuPollTimer = setInterval(pollFeishuQueue, 3000);
 }
 
@@ -697,11 +673,10 @@ async function captureAndReplyFeishu(chatId, msgId) {
         if (aiText) break;
       }
     }
-    if (!aiText) { console.log('[feishu-reply] 未找到AI回复'); return; }
+    if (!aiText) { return; }
 
-    if (aiText.length > 3000) aiText = aiText.substring(0, 3000) + '...[已截断]';
+    if (aiText.length > AI_REPLY_TRUNCATE_LEN) aiText = aiText.substring(0, AI_REPLY_TRUNCATE_LEN) + '...[已截断]';
 
-    console.log('[feishu-reply] 回传AI回复到飞书 chatId=' + chatId + ' len=' + aiText.length);
     var resp = await apiJson('/api/feishu/reply', { chatId: chatId, text: aiText }, 'POST');
     if (resp.success) {
       logPanel('success', 'AI回复已回传飞书 (' + aiText.length + '字)');
@@ -709,7 +684,6 @@ async function captureAndReplyFeishu(chatId, msgId) {
       logPanel('error', '飞书回传失败: ' + (resp.error || 'unknown'));
     }
   } catch(e) {
-    console.log('[feishu-reply] 回传异常:', e.message);
   }
 }
 
@@ -720,8 +694,6 @@ async function pollFeishuQueue() {
 
     var pending = resp.messages.filter(function(m) { return m.id !== feishuLastProcessedId; });
     if (pending.length === 0) return;
-
-    console.log('[feishu-bridge] 发现 ' + pending.length + ' 条新消息');
 
     for (var i = 0; i < pending.length; i++) {
       var msg = pending[i];
@@ -739,12 +711,10 @@ async function pollFeishuQueue() {
       var input = findChatInput();
       if (input && msg.content) {
         if (isFeishuDuplicate(msg)) {
-          console.log('[feishu-bridge] 跳过重复(sender+内容 15s内):', msg.content.substring(0, 40));
           continue;
         }
         var now = Date.now();
         if (now - feishuLastInjectTime < FEISHU_INJECT_COOLDOWN) {
-          console.log('[feishu-bridge] 冷却中，跳过:', msg.content.substring(0, 40));
           continue;
         }
         feishuLastInjectTime = now;
@@ -764,7 +734,6 @@ async function pollFeishuQueue() {
         }
 
         logPanel('info', '飞书消息已注入: ' + msg.content.substring(0,30));
-        console.log('[feishu-bridge] 已注入:', injectText);
       }
     }
 
@@ -774,7 +743,6 @@ async function pollFeishuQueue() {
       }
     } catch(e) {}
   } catch(e) {
-    console.log('[feishu-bridge] 轮询失败:', e.message);
   }
 }
 
@@ -797,9 +765,7 @@ window.__ds_injectToolPrompt = injectToolPrompt;
 window.__ds_smartAgentAction = smartAgentAction;
 window.__ds_updateInitButtonLabel = updateInitButtonLabel;
 
-// ============================================================
-// 工具重试提示词 — 检测最近执行历史，构造针对性重试指令
-// ============================================================
+// ── §3 续: 工具重试提示词 ────────────────────────────────
 async function retryToolPrompt() {
   var monitor = window.__ds_monitor;
   var hasRecentFailure = false;
@@ -877,7 +843,7 @@ async function retryToolPrompt() {
     clickSendButton();
     logPanel('success', '工具重试提示已发送 (' + (hasRecentFailure ? lastToolName + ' ' + failureCount + '次失败' : '通用重试') + ')');
   } else {
-    logPanel('error', '找不到 DeepSeek 输入框');
+    logPanel('error', '找不到输入框');
   }
 }
 
@@ -904,8 +870,6 @@ window.openPermissions = openPermissions;
 window.restrictPermissions = restrictPermissions;
 window.getConfig = getConfig;
 window.syncFullState = syncFullState;
-window.getToolEndpoint = getToolEndpoint;
-window.exportLogsDownload = exportLogsDownload;
 window.retryToolPrompt = retryToolPrompt;
 window.smartAgentAction = smartAgentAction;
 window.injectToolPrompt = injectToolPrompt;

@@ -182,7 +182,7 @@ function showStartupGuide() {
         '    <div style="color:#81c995;"># 方式1: 双击启动（推荐）</div>',
         '    <div style="color:var(--cr-fallback-color-on-surface-subtle);">双击项目根目录的 <b>start-server.bat</b></div>',
         '    <div style="color:#81c995;margin-top:8px;"># 方式2: 命令行启动</div>',
-        '    <div style="color:var(--cr-fallback-color-on-surface-subtle);">cd /d "F:\\桌面\\web_free_agent\\deepseek-tool-agent"</div>',
+        '    <div style="color:var(--cr-fallback-color-on-surface-subtle);">cd /d "&lt;项目根目录&gt;"</div>',
         '    <div style="color:var(--cr-fallback-color-on-surface-subtle);">node server\\launcher.js</div>',
         '    <div style="color:#81c995;margin-top:8px;"># 方式3: 安装 Native Host（自动启动）</div>',
         '    <div style="color:var(--cr-fallback-color-on-surface-subtle);">以管理员身份运行 native-messaging\\register.bat</div>',

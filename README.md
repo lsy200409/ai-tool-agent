@@ -1,10 +1,10 @@
-# 🛠️ DeepSeek Tool Agent v2.6
+# AI Tool Agent v0.1.1
 
-> **Chrome Extension — 为 DeepSeek 网页版注入本地工具调用、记忆管理和 SSE 流拦截能力**
+> **Chrome Extension — 为 AI 网页版注入本地工具调用、记忆管理和 SSE 流拦截能力**
 > 
 > 点击 [github.com/lsy200409/deepseek-tool-agent](https://github.com/lsy200409/deepseek-tool-agent)
 
-[![Version](https://img.shields.io/badge/version-2.6.0-blue)](manifest.json)
+[![Version](https://img.shields.io/badge/version-0.1.1-blue)](manifest.json)
 [![Tests](https://img.shields.io/badge/tests-48%20passed-green)](tests/full-suite.spec.js)
 [![License](https://img.shields.io/badge/license-MIT-orange)](#-许可证)
 
@@ -44,7 +44,7 @@
 
 ## 🌟 核心功能
 
-### v2.6 新增
+### v0.1.1 功能
 
 | 功能 | 描述 |
 |------|------|
@@ -87,7 +87,7 @@ deepseek-tool-agent/
 │   ├── monitor/
 │   │   └── input-monitor.js      # 输入监控 + 状态机 + KeepAlive
 │   ├── ui/
-│   │   ├── panel.js              # 面板 UI 构建 (v2.6 Chromium tokens)
+│   │   ├── panel.js              # 面板 UI 构建 (Chromium tokens)
 │   │   ├── panel-css.js          # 分离的 CSS 模块 (508 行)
 │   │   ├── actions.js            # 工具注入、记忆管理、工具重试
 │   │   ├── connection.js         # 服务器连接、心跳、启动引导
@@ -249,7 +249,7 @@ AI 在回复中使用 XML 标签调用工具：
 
 ## 🏗️ 技术架构
 
-### SSE 流拦截 (v2.6)
+### SSE 流拦截
 
 ```
 window.fetch → ReadableStream.tee() → 分流
@@ -358,4 +358,4 @@ MIT License — 详见 [LICENSE](LICENSE)
 
 ---
 
-*Built for DeepSeek Web · v2.6.0 · Powered by Chrome Extension MV3*
+*Built for AI Web · v0.1.1 · Powered by Chrome Extension MV3*

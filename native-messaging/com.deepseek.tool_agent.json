@@ -1,12 +1,11 @@
 {
     "name": "com.deepseek.tool_agent",
-    "description": "DeepSeek Tool Agent - Native Messaging Host",
-    "path": "F:\\node\\node.exe",
+    "description": "AI Tool Agent - Native Messaging Host",
+    "path": "node.exe",
     "type": "stdio",
     "allowed_origins": [
-        "chrome-extension://diaocpmadbepofacimmkigkkkeihnjio/"
     ],
     "args": [
-        "F:\\桌面\\web_free_agent\\deepseek-tool-agent\\native-messaging\\native-host.js"
+        "native-messaging/native-host.js"
     ]
 }

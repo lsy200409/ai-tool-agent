@@ -1,7 +1,6 @@
 // ============================================================
-// DeepSeek Tool Agent v2.3 — 工具注册器 (openclaw 兼容)
+// DeepSeek Tool Agent v0.1.1 — 工具注册器
 //
-// 核心模式来自 openclaw-zero-token-main:
 //   - AnyAgentTool: { name, label, description, parameters, execute }
 //   - ToolFactory: (ctx) => AnyAgentTool | AnyAgentTool[]
 //   - 执行管道: beforeHooks → execute → afterHooks
@@ -18,7 +17,7 @@ const path = require('path');
 const execPromise = util.promisify(exec);
 
 // ============================================================
-// 结果包装器 (openclaw pattern)
+// 结果包装器
 // ============================================================
 function jsonResult(data) {
   return [{ type: 'text', text: JSON.stringify(data) }];
@@ -33,7 +32,7 @@ function errorResult(message, details) {
 }
 
 // ============================================================
-// 工具上下文 (OpenClawPluginToolContext 简化版)
+// 工具上下文
 // ============================================================
 function createToolContext(options) {
   return {
@@ -43,6 +42,7 @@ function createToolContext(options) {
     sessionKey: options.sessionKey || '',
     sandboxed: options.sandboxed || false,
     globalPermissions: options.globalPermissions || false,
+    _confirmed: options._confirmed || false,
     platform: process.platform,
     env: { ...process.env }
   };
@@ -69,6 +69,26 @@ function buildBuiltinTools(ctx) {
       },
       execute: async (_toolCallId, args) => {
         const filePath = resolvePath(args.path, wsDir);
+
+        // 路径安全检查
+        const forbidden = isForbiddenPath(filePath);
+        if (forbidden) {
+          return jsonResult({ success: true, blocked: true, reason: '禁止读取: ' + forbidden.reason, path: filePath });
+        }
+
+        // workspace 外的路径需要确认
+        if (isOutsideWorkspace(filePath, wsDir) && !ctx.globalPermissions && !ctx._confirmed) {
+          const sensitive = isSensitivePath(filePath);
+          return jsonResult({
+            success: true,
+            blocked: true,
+            needsConfirmation: true,
+            reason: sensitive ? '读取敏感目录需要确认: ' + sensitive.reason : '读取 workspace 外路径需要确认',
+            path: filePath,
+            explanation: 'AI 应说明需要读取此文件的原因，由用户确认后执行'
+          });
+        }
+
         try {
           const content = await fsp.readFile(filePath, 'utf-8');
           return jsonResult({ success: true, content, path: filePath, size: content.length });
@@ -91,6 +111,26 @@ function buildBuiltinTools(ctx) {
       },
       execute: async (_toolCallId, args) => {
         const filePath = resolvePath(args.path, wsDir);
+
+        // 路径安全检查
+        const forbidden = isForbiddenPath(filePath);
+        if (forbidden) {
+          return jsonResult({ success: true, blocked: true, reason: '禁止写入: ' + forbidden.reason, path: filePath });
+        }
+
+        // 写入 workspace 外的路径需要确认
+        if (isOutsideWorkspace(filePath, wsDir) && !ctx.globalPermissions && !ctx._confirmed) {
+          const sensitive = isSensitivePath(filePath);
+          return jsonResult({
+            success: true,
+            blocked: true,
+            needsConfirmation: true,
+            reason: sensitive ? '写入敏感目录需要确认: ' + sensitive.reason : '写入 workspace 外路径需要确认',
+            path: filePath,
+            explanation: 'AI 应说明需要写入此文件的原因，由用户确认后执行'
+          });
+        }
+
         await fsp.mkdir(path.dirname(filePath), { recursive: true });
         await fsp.writeFile(filePath, args.content, 'utf-8');
         return jsonResult({ success: true, path: filePath, size: args.content.length });
@@ -110,6 +150,26 @@ function buildBuiltinTools(ctx) {
       },
       execute: async (_toolCallId, args) => {
         const filePath = resolvePath(args.path, wsDir);
+
+        // 路径安全检查
+        const forbidden = isForbiddenPath(filePath);
+        if (forbidden) {
+          return jsonResult({ success: true, blocked: true, reason: '禁止写入: ' + forbidden.reason, path: filePath });
+        }
+
+        // 写入 workspace 外的路径需要确认
+        if (isOutsideWorkspace(filePath, wsDir) && !ctx.globalPermissions && !ctx._confirmed) {
+          const sensitive = isSensitivePath(filePath);
+          return jsonResult({
+            success: true,
+            blocked: true,
+            needsConfirmation: true,
+            reason: sensitive ? '写入敏感目录需要确认: ' + sensitive.reason : '写入 workspace 外路径需要确认',
+            path: filePath,
+            explanation: 'AI 应说明需要追加此文件的原因，由用户确认后执行'
+          });
+        }
+
         await fsp.mkdir(path.dirname(filePath), { recursive: true });
         await fsp.appendFile(filePath, args.content, 'utf-8');
         return jsonResult({ success: true, path: filePath });
@@ -130,18 +190,42 @@ function buildBuiltinTools(ctx) {
       },
       execute: async (_toolCallId, args) => {
         const dirPath = resolvePath(args.path || '.', wsDir);
-        const entries = await fsp.readdir(dirPath, { withFileTypes: true });
-        const files = await Promise.all(entries.map(async (entry) => {
-          const fullPath = path.join(dirPath, entry.name);
-          let size = 0;
-          try { if (entry.isFile()) { const stat = await fsp.stat(fullPath); size = stat.size; } } catch (e) {}
-          return { name: entry.name, isDirectory: entry.isDirectory(), size };
-        }));
-        files.sort((a, b) => {
-          if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
-          return a.name.localeCompare(b.name);
-        });
-        return jsonResult({ success: true, files, count: files.length, path: dirPath });
+
+        // 路径安全检查
+        const forbidden = isForbiddenPath(dirPath);
+        if (forbidden) {
+          return jsonResult({ success: true, blocked: true, reason: '禁止列出: ' + forbidden.reason, path: dirPath });
+        }
+
+        // workspace 外的路径需要确认
+        if (isOutsideWorkspace(dirPath, wsDir) && !ctx.globalPermissions && !ctx._confirmed) {
+          const sensitive = isSensitivePath(dirPath);
+          return jsonResult({
+            success: true,
+            blocked: true,
+            needsConfirmation: true,
+            reason: sensitive ? '列出敏感目录需要确认: ' + sensitive.reason : '列出 workspace 外目录需要确认',
+            path: dirPath,
+            explanation: 'AI 应说明需要访问此目录的原因，由用户确认后执行'
+          });
+        }
+
+        try {
+          const entries = await fsp.readdir(dirPath, { withFileTypes: true });
+          const files = await Promise.all(entries.map(async (entry) => {
+            const fullPath = path.join(dirPath, entry.name);
+            let size = 0;
+            try { if (entry.isFile()) { const stat = await fsp.stat(fullPath); size = stat.size; } } catch (e) {}
+            return { name: entry.name, isDirectory: entry.isDirectory(), size };
+          }));
+          files.sort((a, b) => {
+            if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+            return a.name.localeCompare(b.name);
+          });
+          return jsonResult({ success: true, files, count: files.length, path: dirPath });
+        } catch (e) {
+          return jsonResult({ success: false, error: e.message, path: dirPath });
+        }
       }
     },
 
@@ -160,13 +244,42 @@ function buildBuiltinTools(ctx) {
         required: ['command']
       },
       execute: async (_toolCallId, args) => {
+        if (!args.command) return jsonResult({ success: false, error: '缺少 command 参数' });
+
+        // 1. 危险命令检测（最高优先级，直接拦截）
         if (!ctx.globalPermissions) {
           const danger = detectDangerousCommand(args.command);
           if (danger) {
             return jsonResult({ success: true, blocked: true, reason: danger.reason, command: args.command, stdout: '', stderr: '' });
           }
         }
+
+        // 2. 命令安全级别分类
+        const safetyLevel = classifyCommand(args.command);
+
+        // 3. 工作目录检查
         const workDir = args.cwd ? resolvePath(args.cwd, wsDir) : wsDir;
+        const cwdCheck = isForbiddenPath(workDir);
+        if (cwdCheck) {
+          return jsonResult({ success: true, blocked: true, reason: '工作目录在禁止区域: ' + cwdCheck.reason, command: args.command, stdout: '', stderr: '' });
+        }
+
+        // 4. 敏感命令需要二次确认
+        if (safetyLevel === 'sensitive' && !ctx.globalPermissions && !ctx._confirmed) {
+          return jsonResult({
+            success: true,
+            blocked: true,
+            needsConfirmation: true,
+            reason: '敏感命令需要确认',
+            command: args.command,
+            safetyLevel: safetyLevel,
+            explanation: '此命令可能修改文件或系统状态，AI 应解释命令作用后由用户确认执行',
+            stdout: '',
+            stderr: ''
+          });
+        }
+
+        // 5. 执行命令
         try {
           const result = await execPromise(args.command, {
             timeout: args.timeout || 30000,
@@ -177,14 +290,16 @@ function buildBuiltinTools(ctx) {
           return jsonResult({
             success: true,
             stdout: (result.stdout || '').substring(0, 50000),
-            stderr: (result.stderr || '').substring(0, 10000)
+            stderr: (result.stderr || '').substring(0, 10000),
+            safetyLevel: safetyLevel
           });
         } catch (error) {
           return jsonResult({
             success: true,
             stdout: (error.stdout || '').substring(0, 50000),
             stderr: (error.stderr || error.message || '').substring(0, 10000),
-            exitCode: error.code || -1
+            exitCode: error.code || -1,
+            safetyLevel: safetyLevel
           });
         }
       }
@@ -246,6 +361,25 @@ class ToolRegistry {
     for (const tool of tools) {
       this._tools.set(tool.name, tool);
       this._pluginTools.set(tool.name, { tool, pluginId, optional: false });
+    }
+  }
+
+  // --- 带确认标记执行（用于 /api/confirm 端点）---
+  async executeToolConfirmed(name, args, opts) {
+    const confirmedCtx = createToolContext({
+      workspaceDir: this._workspaceDir,
+      globalPermissions: this._globalPermissions,
+      _confirmed: true
+    });
+    const tools = buildBuiltinTools(confirmedCtx);
+    const tool = tools.find(t => t.name === name);
+    if (!tool) return errorResult(`未知工具: ${name}`);
+
+    const toolCallId = (opts && opts.toolCallId) || generateId();
+    try {
+      return await tool.execute(toolCallId, args);
+    } catch (e) {
+      return errorResult('工具执行异常: ' + e.message);
     }
   }
 
@@ -357,6 +491,165 @@ class ToolRegistry {
 }
 
 // ============================================================
+// 安全约束系统
+// ============================================================
+
+// 1. 命令白名单 — 这些命令可以直接执行，不需要二次确认
+const SAFE_COMMANDS = [
+  // 文件浏览
+  'ls', 'dir', 'tree', 'find', 'locate', 'which', 'where', 'pwd', 'cd',
+  // 文件查看
+  'cat', 'head', 'tail', 'less', 'more', 'type', 'bat',
+  // 搜索
+  'grep', 'rg', 'ag', 'ack', 'findstr', 'select-string',
+  // 文件信息
+  'stat', 'wc', 'file', 'du', 'df', 'touch',
+  // 版本控制
+  'git', 'svn', 'hg',
+  // 包管理（只读操作）
+  'npm', 'yarn', 'pnpm', 'pip', 'pip3', 'cargo',
+  // 开发工具
+  'node', 'python', 'python3', 'ruby', 'java', 'go', 'rustc',
+  // 构建工具
+  'make', 'cmake', 'gradle', 'mvn',
+  // 测试
+  'jest', 'mocha', 'pytest', 'vitest',
+  // 文本处理
+  'echo', 'printf', 'sort', 'uniq', 'diff', 'patch', 'tr', 'cut', 'awk', 'sed',
+  // 压缩（查看）
+  'tar', 'zip', 'unzip', 'gzip', 'gunzip',
+  // 网络（只读）
+  'ping', 'curl', 'wget', 'nslookup', 'dig', 'host', 'ipconfig', 'ifconfig',
+  // 进程查看
+  'ps', 'top', 'htop', 'tasklist', 'wmic',
+  // 环境信息
+  'env', 'set', 'printenv', 'whoami', 'hostname', 'uname', 'date', 'cal',
+  // Docker（只读）
+  'docker',
+  // 编码
+  'base64', 'md5sum', 'sha256sum', 'certutil',
+  // 其他安全命令
+  'tsc', 'eslint', 'prettier', 'ruff', 'black', 'mypy',
+];
+
+// 2. 敏感命令 — 需要二次确认（AI 解释作用后用户确认）
+const SENSITIVE_COMMANDS = [
+  // 文件修改
+  'rm', 'del', 'rmdir', 'rd', 'move', 'ren', 'rename', 'cp', 'copy', 'xcopy', 'robocopy',
+  'mkdir', 'md', 'chmod', 'chown', 'icacls', 'attrib',
+  // 系统操作
+  'net', 'netsh', 'sc', 'reg', 'regedit', 'gpupdate', 'sfc', 'dism',
+  'taskkill', 'kill', 'pkill', 'killall',
+  // 服务管理
+  'systemctl', 'service', 'net start', 'net stop',
+  // 安装/卸载
+  'install', 'apt', 'apt-get', 'yum', 'dnf', 'brew', 'choco', 'scoop', 'winget',
+  'npm install', 'npm uninstall', 'npm i',
+  'pip install', 'pip uninstall', 'pip3 install', 'pip3 uninstall',
+  'yarn add', 'yarn remove', 'pnpm add', 'pnpm remove',
+  'cargo install',
+  // 用户管理
+  'useradd', 'userdel', 'passwd', 'adduser',
+  // 防火墙
+  'iptables', 'ufw', 'firewall-cmd',
+  // 注册表
+  'reg', 'regedit', 'regsvr32',
+  // 计划任务
+  'schtasks', 'crontab', 'at',
+  // PowerShell 执行策略
+  'Set-ExecutionPolicy',
+];
+
+// 3. 禁止路径 — 绝对不允许读写
+const FORBIDDEN_PATHS = [
+  // Windows 系统目录
+  'C:\\Windows\\System32', 'C:\\Windows\\SysWOW64', 'C:\\Windows\\System',
+  'C:\\Windows\\WinSxS', 'C:\\Windows\\SoftwareDistribution',
+  // Program Files
+  'C:\\Program Files', 'C:\\Program Files (x86)',
+  // 系统根目录关键文件
+  'C:\\bootmgr', 'C:\\BOOTNXT', 'C:\\pagefile.sys', 'C:\\hiberfil.sys',
+  // Linux 系统目录
+  '/etc', '/usr', '/bin', '/sbin', '/lib', '/boot', '/sys', '/proc', '/dev',
+  '/root', '/var/log', '/var/lib',
+  // macOS 系统目录
+  '/System', '/Library', '/private/var',
+];
+
+// 4. 敏感路径 — 需要二次确认
+const SENSITIVE_PATHS = [
+  process.env.USERPROFILE || process.env.HOME || '',
+  process.env.APPDATA || '',
+  process.env.LOCALAPPDATA || '',
+  'C:\\Users', '/home',
+];
+
+// 判断命令安全级别: 'safe' | 'sensitive' | 'dangerous'
+function classifyCommand(command) {
+  if (!command || typeof command !== 'string') return 'safe';
+
+  const cmd = command.trim();
+
+  // 先检查危险命令（最高优先级）
+  const danger = detectDangerousCommand(cmd);
+  if (danger) return 'dangerous';
+
+  // 提取命令名（第一个词）
+  const firstWord = cmd.split(/\s+/)[0].toLowerCase();
+  // 处理路径形式: C:\xxx 或 /usr/bin/xxx
+  const baseName = firstWord.split(/[/\\]/).pop().replace(/\.(exe|bat|cmd|ps1|sh)$/i, '');
+
+  // 检查敏感命令（优先于白名单，因为 npm install 是敏感的但 npm 是安全的）
+  for (const sc of SENSITIVE_COMMANDS) {
+    if (cmd.toLowerCase().startsWith(sc + ' ') || cmd.toLowerCase() === sc) {
+      return 'sensitive';
+    }
+  }
+
+  // 检查白名单
+  if (SAFE_COMMANDS.includes(baseName) || SAFE_COMMANDS.includes(firstWord)) {
+    return 'safe';
+  }
+
+  // 未知命令默认为敏感
+  return 'sensitive';
+}
+
+// 检查路径是否在禁止列表中
+function isForbiddenPath(filePath) {
+  if (!filePath) return false;
+  const normalized = path.resolve(filePath).toLowerCase();
+  for (const fp of FORBIDDEN_PATHS) {
+    if (!fp) continue;
+    if (normalized.startsWith(fp.toLowerCase()) || normalized === fp.toLowerCase()) {
+      return { forbidden: true, reason: '系统关键目录: ' + fp };
+    }
+  }
+  return null;
+}
+
+// 检查路径是否在敏感列表中
+function isSensitivePath(filePath) {
+  if (!filePath) return false;
+  const normalized = path.resolve(filePath).toLowerCase();
+  for (const sp of SENSITIVE_PATHS) {
+    if (!sp) continue;
+    if (normalized.startsWith(sp.toLowerCase())) {
+      return { sensitive: true, reason: '用户目录: ' + sp };
+    }
+  }
+  return null;
+}
+
+// 检查路径是否在 workspace 外
+function isOutsideWorkspace(filePath, workspaceDir) {
+  if (!filePath || !workspaceDir) return false;
+  const normalized = path.resolve(filePath).toLowerCase();
+  const wsNormalized = path.resolve(workspaceDir).toLowerCase();
+  return !normalized.startsWith(wsNormalized);
+}
+
+// ============================================================
 // 危险命令检测 (保留现有逻辑)
 // ============================================================
 const DANGER_PATTERNS = [
@@ -399,4 +692,4 @@ function generateId() {
   return 'tc_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 6);
 }
 
-module.exports = { ToolRegistry, jsonResult, textResult, errorResult, createToolContext, resolvePath, detectDangerousCommand };
+module.exports = { ToolRegistry, jsonResult, textResult, errorResult, createToolContext, resolvePath, detectDangerousCommand, classifyCommand, isForbiddenPath, isSensitivePath, isOutsideWorkspace };

@@ -2,7 +2,7 @@
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1WBfqy3mOJ/gtVBe2q7lFPy1mUnrHruGsVEB1k8fyKuLqX/24Bzzp4zU3anv2nzyd2rwK7sxet0JQ3sYQ90gSilNpfoGHigXfuQZ/9E8vGyLsje9jC/p6V7zs6dhXdnhez/LOV59EIJ4zSkgju9h6L57TLBskkJ4rm1ilgMn1JObIr7ouuKjJPolLYEMWBC121t+6uBtUIeEr+YAe4kXugEbw9vrLhbwsJr/YkDsO8Mrw6t4GVjAVsDqGDiMFbKIkZqkvVdzm6k43MBP3JpPh+blA/uWi9+Ys4SBBXgxzveTaZFRNboMsMVQlRl06KKd26qXUuqlKbH74h6ZkWpk7QIDAQAB",
   "manifest_version": 3,
   "name": "AI Tool Agent",
-  "version": "3.0.0",
+  "version": "0.1.1",
   "description": "为 AI 网页版添加本地工具调用能力 - 支持 DeepSeek/ChatGPT/Kimi/通义千问/智谱/豆包",
   "permissions": [
     "activeTab",
@@ -56,7 +56,7 @@
         "https://www.doubao.com/*",
         "https://doubao.com/*"
       ],
-      "js": ["src/platforms/platform-registry.js", "src/platforms/deepseek.js", "src/platforms/chatgpt.js", "src/platforms/kimi.js", "src/platforms/qwen.js", "src/platforms/qwen-intl.js", "src/platforms/chatglm.js", "src/platforms/zai.js", "src/platforms/doubao.js", "src/sse-interceptor.js"],
+      "js": ["src/platforms/platform-base.js", "src/platforms/platform-registry.js", "src/platforms/deepseek.js", "src/platforms/chatgpt.js", "src/platforms/kimi.js", "src/platforms/qwen.js", "src/platforms/qwen-intl.js", "src/platforms/chatglm.js", "src/platforms/zai.js", "src/platforms/doubao.js", "src/sse-interceptor.js"],
       "run_at": "document_start",
       "world": "MAIN"
     },
@@ -88,6 +88,7 @@
         "src/core/parser.js",
         "src/core/executor.js",
         "src/core/backfill.js",
+        "src/platforms/platform-base.js",
         "src/platforms/platform-registry.js",
         "src/platforms/deepseek.js",
         "src/platforms/chatgpt.js",
@@ -138,8 +139,18 @@
       ]
     }
   ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "AI Tool Agent"
+    "default_title": "AI Tool Agent",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   }
 }

@@ -8,9 +8,9 @@ function logPanel(level, message) {
   var timestamp = now.toISOString();
   var fullMessage = '[' + level.toUpperCase() + '] ' + time + ' ' + message;
 
-  if (level === 'error') console.error('[DS Agent] ' + fullMessage);
-  else if (level === 'warn') console.warn('[DS Agent] ' + fullMessage);
-  else console.log('[DS Agent] ' + fullMessage);
+  if (level === 'error') console.error('[Agent] ' + fullMessage);
+  else if (level === 'warn') console.warn('[Agent] ' + fullMessage);
+  else console.log('[Agent] ' + fullMessage);
 
   saveLocalLog(level, message, time, timestamp);
   sendLogToFile(level, message, timestamp);
@@ -70,7 +70,7 @@ function exportLogsDownload() {
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
   a.href = url;
-  a.download = 'ds-agent-log-' + new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19) + '.txt';
+  a.download = 'ai-agent-log-' + new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19) + '.txt';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
   logPanel('info', '📥 日志已导出 (' + text.length + ' 字节)');
@@ -149,8 +149,8 @@ function _doUpdateHistoryUI() {
     var preview = (card.content || '').trim();
     preview = preview.length > 80 ? escapeHtml(preview.substring(0, 80)) + '...' : escapeHtml(preview);
 
-    html += '<div class="__ds-history-card" data-card-id="' + card.id + '">';
-    html += '<div class="__ds-card-header" onclick="window.__ds_toggleCard(\'' + card.id + '\')">';
+    html += '<div class="__ds-history-card" data-card-id="' + escapeAttr(card.id) + '">';
+    html += '<div class="__ds-card-header" data-card-id="' + escapeAttr(card.id) + '">';
     html += '<span class="__ds-card-type-badge ' + badge.cls + '">' + badge.text + '</span>';
     html += '<div class="__ds-card-header-main">';
     html += '<span class="__ds-card-title">' + escapeHtml(card.title) + '</span>';
@@ -176,6 +176,19 @@ function _doUpdateHistoryUI() {
     html += '</div></div>';
   }
   container.innerHTML = html;
+
+  // Ensure event delegation is attached only once
+  if (!container.__ds_delegated) {
+    container.__ds_delegated = true;
+    container.addEventListener('click', function(e) {
+      var header = e.target.closest('.__ds-card-header');
+      if (header) {
+        var cardId = header.getAttribute('data-card-id');
+        if (cardId) window.__ds_toggleCard(cardId);
+      }
+    });
+  }
+
   container.scrollTop = container.scrollHeight;
 }
 

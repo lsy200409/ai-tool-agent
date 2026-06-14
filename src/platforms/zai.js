@@ -13,29 +13,67 @@
 
       extractContent: function(chunk) {
         if (!chunk) return null;
-        // OpenAI 兼容格式
-        if (chunk.choices && chunk.choices.length > 0) {
-          var delta = chunk.choices[0].delta;
-          if (delta) {
-            if (delta.content) return delta.content;
+
+        // z.ai 使用 {type, data} 格式，data 是 JSON 字符串需要二次解析
+        if (chunk.type && chunk.data !== undefined) {
+          var innerData = chunk.data;
+          // data 可能是 JSON 字符串，需要解析
+          if (typeof innerData === 'string') {
+            try { innerData = JSON.parse(innerData); } catch(e) { return null; }
           }
-          // finish_reason
+          if (!innerData) return null;
+
+          // 解析后的 innerData 可能是 OpenAI 兼容格式
+          if (innerData.choices && innerData.choices.length > 0) {
+            var delta = innerData.choices[0].delta;
+            if (delta && delta.content) return delta.content;
+            if (innerData.choices[0].finish_reason) return null;
+          }
+          // 智谱原生格式
+          if (innerData.parts && innerData.parts.length > 0) {
+            var texts = [];
+            for (var i = 0; i < innerData.parts.length; i++) {
+              var part = innerData.parts[i];
+              if (part.content && Array.isArray(part.content)) {
+                for (var j = 0; j < part.content.length; j++) {
+                  if (part.content[j].type === 'text' && part.content[j].text) {
+                    texts.push(part.content[j].text);
+                  }
+                }
+              }
+            }
+            if (texts.length > 0) return texts.join('');
+          }
+          // z.ai 增量内容格式: {delta_content: "...", phase: "thinking/output"}
+          if (innerData.delta_content) return innerData.delta_content;
+          if (innerData.text) return innerData.text;
+          if (innerData.delta) return innerData.delta;
+          if (innerData.content) {
+            if (typeof innerData.content === 'string') return innerData.content;
+          }
+          return null;
+        }
+
+        // 直接 OpenAI 兼容格式（无外层 type/data 包装）
+        if (chunk.choices && chunk.choices.length > 0) {
+          var delta2 = chunk.choices[0].delta;
+          if (delta2 && delta2.content) return delta2.content;
           if (chunk.choices[0].finish_reason) return null;
         }
         // 智谱原生格式
         if (chunk.parts && chunk.parts.length > 0) {
-          var texts = [];
-          for (var i = 0; i < chunk.parts.length; i++) {
-            var part = chunk.parts[i];
-            if (part.content && Array.isArray(part.content)) {
-              for (var j = 0; j < part.content.length; j++) {
-                if (part.content[j].type === 'text' && part.content[j].text) {
-                  texts.push(part.content[j].text);
+          var texts2 = [];
+          for (var k = 0; k < chunk.parts.length; k++) {
+            var part2 = chunk.parts[k];
+            if (part2.content && Array.isArray(part2.content)) {
+              for (var l = 0; l < part2.content.length; l++) {
+                if (part2.content[l].type === 'text' && part2.content[l].text) {
+                  texts2.push(part2.content[l].text);
                 }
               }
             }
           }
-          if (texts.length > 0) return texts.join('');
+          if (texts2.length > 0) return texts2.join('');
         }
         if (chunk.text) return chunk.text;
         if (chunk.delta) return chunk.delta;
@@ -44,7 +82,23 @@
 
       detectStreamEnd: function(chunk) {
         if (!chunk) return null;
-        // OpenAI 格式
+        // z.ai {type, data} 格式：type 表示结束
+        if (chunk.type && chunk.data !== undefined) {
+          // type 为 done/stop/chat:completion_done 等表示结束
+          if (chunk.type === 'done' || chunk.type === 'stop' || chunk.type === 'chat:completion_done') return chunk.type;
+          // 检查内层 data 的 finish_reason
+          var innerData = chunk.data;
+          if (typeof innerData === 'string') {
+            try { innerData = JSON.parse(innerData); } catch(e) {}
+          }
+          if (innerData && innerData.choices && innerData.choices.length > 0 && innerData.choices[0].finish_reason) {
+            return innerData.choices[0].finish_reason;
+          }
+          // z.ai 内层 data 可能有 finish_reason 字段
+          if (innerData && innerData.finish_reason) return innerData.finish_reason;
+          return null;
+        }
+        // 直接 OpenAI 格式
         if (chunk.choices && chunk.choices.length > 0 && chunk.choices[0].finish_reason) {
           return chunk.choices[0].finish_reason;
         }
@@ -52,6 +106,8 @@
       },
 
       detectEventClose: function(eventType, chunk) {
+        // z.ai SSE event type 可能表示关闭
+        if (eventType === 'done' || eventType === 'stop') return eventType;
         return null;
       },
 
@@ -152,13 +208,7 @@
       if (btn) { btn.click(); return true; }
       // fallback: Enter
       var input = typeof findChatInput === 'function' ? findChatInput() : null;
-      if (!input) return false;
-      input.focus();
-      var evt = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true };
-      input.dispatchEvent(new KeyboardEvent('keydown', evt));
-      input.dispatchEvent(new KeyboardEvent('keypress', evt));
-      input.dispatchEvent(new KeyboardEvent('keyup', evt));
-      return true;
+      return PlatformAdapter.sendMessageFallback(input);
     }
   };
 

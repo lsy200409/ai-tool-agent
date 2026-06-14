@@ -1,8 +1,7 @@
 // ============================================================
-// DeepSeek Tool Agent v2.3 — 插件加载器 (openclaw 兼容)
+// DeepSeek Tool Agent v0.1.1 — 插件加载器
 //
-// 核心模式来自 openclaw-zero-token-main:
-//   - 插件定义: OpenClawPluginDefinition { id, name, version, register(api) }
+//   - 插件定义: { id, name, version, register(api) }
 //   - 发现机制: 扫描 bundled/global/workspace 目录
 //   - 注册 API: registerTool, registerHook 等
 //   - 版本检查: semver compatible
@@ -56,9 +55,9 @@ function compareSemver(a, b) {
 }
 
 // ============================================================
-// 插件定义 (openclaw 格式)
+// 插件定义
 // ============================================================
-// OpenClawPluginDefinition = {
+// PluginDefinition = {
 //   id?: string,
 //   name?: string,
 //   description?: string,

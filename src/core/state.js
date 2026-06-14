@@ -24,8 +24,6 @@ var agentSkills = [];
 var agentTools = [];
 var agentQuickActions = [];
 
-var TOOL_CALL_REGEX = /<tool_call[^>]*>([\s\S]*?)<\/tool_call>/i;
-var ARROW_SVG_PATH = 'm8.3125';
 
 function sleep(ms) {
   return new Promise(function(resolve) { setTimeout(resolve, ms); });
@@ -41,13 +39,6 @@ function escapeAttr(str) {
   return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function extensionPathHint() {
-  try {
-    var url = chrome.runtime.getURL('');
-    return url.replace(/\/$/, '').replace('chrome-extension://' + chrome.runtime.id, '');
-  } catch(e) {}
-  return 'deepseek-tool-agent';
-}
 
 function formatFileSize(bytes) {
   if (bytes < 1024) return bytes + ' B';

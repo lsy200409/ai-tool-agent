@@ -1,27 +1,27 @@
 // ============================================================
-// DeepSeek Tool Agent - Native Messaging Host (Launcher Proxy)
+// AI Tool Agent - Native Messaging Host (Launcher Proxy)
 // 由浏览器自动启动/关闭，负责启动 launcher.js 并桥接通信
 // ============================================================
 
 const { spawn } = require('child_process');
 const http = require('http');
-const fs = require('fs').promises;
+const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
 const PORT = 3002;
-const LAUNCHER_SCRIPT = path.join(__dirname, '..', 'server', 'launcher.js');
-const WORKSPACE_DIR = path.join(__dirname, '..', 'workspace');
+// 项目根目录：优先环境变量，其次 __dirname 相对路径
+const PROJECT_ROOT = process.env.AI_TOOL_AGENT_HOME || path.resolve(__dirname, '..');
+const LAUNCHER_SCRIPT = path.join(PROJECT_ROOT, 'server', 'launcher.js');
+const WORKSPACE_DIR = path.join(PROJECT_ROOT, 'workspace');
 const LOG_PATH = path.join(os.tmpdir(), 'ds-native-host.log');
 
 let launcherProcess = null;
 let isRunning = false;
-let daemonCleanup = null;
 
 function nhLog(msg) {
-  const line = new Date().toISOString() + ' [Proxy] ' + msg + '\n';
-  console.error('[NativeHost] ' + msg);
-  try { fs.appendFile(LOG_PATH, line); } catch(e) {}
+  const line = new Date().toISOString() + ' [NH] ' + msg + '\n';
+  try { fs.appendFileSync(LOG_PATH, line); } catch(e) {}
 }
 
 // ============================================================
@@ -96,7 +96,7 @@ async function startLauncher() {
   nhLog('Launcher 路径: ' + LAUNCHER_SCRIPT);
 
   try {
-    await fs.stat(LAUNCHER_SCRIPT);
+    fs.statSync(LAUNCHER_SCRIPT);
   } catch (e) {
     nhLog('launcher.js 不存在: ' + e.message);
     return false;
@@ -153,84 +153,52 @@ function stopLauncher() {
     launcherProcess.kill('SIGTERM');
     launcherProcess = null;
   }
-
-  if (daemonCleanup) {
-    clearInterval(daemonCleanup);
-    daemonCleanup = null;
-  }
 }
 
 // ============================================================
-// Native Messaging 协议
+// Native Messaging 协议 - 使用 data 事件缓冲模式
+// 注意：直接用 node.exe 启动在 Windows 上会导致管道崩溃
+// 必须通过 .bat 文件启动（见 setup-bat.js）
 // ============================================================
-function readMessageSync() {
-  const lengthBuffer = process.stdin.read(4);
-  if (lengthBuffer === null) return null;
+let incomingBuffer = Buffer.alloc(0);
 
-  const length = lengthBuffer.readInt32LE(0);
-  if (length <= 0 || length > 1024 * 1024) return null;
+process.stdin.on('data', (chunk) => {
+  incomingBuffer = Buffer.concat([incomingBuffer, chunk]);
+  processIncoming();
+});
 
-  const messageBuffer = process.stdin.read(length);
-  if (messageBuffer === null) return null;
-
-  return JSON.parse(messageBuffer.toString('utf-8'));
+function processIncoming() {
+  while (incomingBuffer.length >= 4) {
+    const msgLen = incomingBuffer.readInt32LE(0);
+    if (msgLen <= 0 || msgLen > 1024 * 1024) {
+      nhLog('invalid msg len: ' + msgLen);
+      incomingBuffer = incomingBuffer.slice(4);
+      continue;
+    }
+    if (incomingBuffer.length < 4 + msgLen) break;
+    const msgBuf = incomingBuffer.slice(4, 4 + msgLen);
+    incomingBuffer = incomingBuffer.slice(4 + msgLen);
+    try {
+      handleMessage(JSON.parse(msgBuf.toString('utf-8')));
+    } catch (e) {
+      nhLog('JSON parse fail: ' + e.message);
+    }
+  }
 }
 
 function sendMessage(message) {
   try {
-    if (process.stdout.writable === false) {
-      nhLog('stdout 不可写，跳过发送: ' + (message ? message.type : 'null'));
-      return false;
-    }
     const json = JSON.stringify(message);
-    const buffer = Buffer.from(json, 'utf-8');
-    const lengthBuffer = Buffer.alloc(4);
-    lengthBuffer.writeInt32LE(buffer.length, 0);
-    process.stdout.write(lengthBuffer);
-    process.stdout.write(buffer);
+    const header = Buffer.alloc(4);
+    header.writeInt32LE(Buffer.byteLength(json), 0);
+    process.stdout.write(header);
+    process.stdout.write(json, 'utf-8');
+    nhLog('sent: ' + json.substring(0, 100));
     return true;
   } catch (e) {
     nhLog('sendMessage 异常: ' + e.message);
     return false;
   }
-}
-
-function readMessage() {
-  return new Promise((resolve, reject) => {
-    const chunk = process.stdin.read();
-    if (chunk !== null) {
-      process.stdin.unshift(chunk);
-      try {
-        const msg = readMessageSync();
-        if (msg === null) {
-          setTimeout(() => readMessage().then(resolve).catch(reject), 50);
-          return;
-        }
-        resolve(msg);
-      } catch (e) {
-        reject(e);
-      }
-      return;
-    }
-
-    if (process.stdin.readableEnded || process.stdin.destroyed) {
-      resolve(null);
-      return;
-    }
-
-    process.stdin.once('readable', () => {
-      try {
-        const msg = readMessageSync();
-        if (msg === null) {
-          setTimeout(() => readMessage().then(resolve).catch(reject), 50);
-          return;
-        }
-        resolve(msg);
-      } catch (e) {
-        reject(e);
-      }
-    });
-  });
 }
 
 // ============================================================
@@ -264,6 +232,42 @@ async function handleExecuteTool(message) {
 }
 
 // ============================================================
+// 消息处理（事件驱动，由 processIncoming 调用）
+// ============================================================
+async function handleMessage(message) {
+  nhLog('收到消息: ' + message.type);
+
+  switch (message.type) {
+    case 'ping':
+      const healthy = await checkHealth(2000);
+      sendMessage({ type: 'pong', running: healthy });
+      break;
+
+    case 'stop':
+      nhLog('收到 stop 命令');
+      stopLauncher();
+      process.exit(0);
+
+    case 'execute_tool':
+      const result = await handleExecuteTool(message);
+      sendMessage({ type: 'tool_result', ...result });
+      break;
+
+    case 'restart':
+      nhLog('收到 restart 命令');
+      stopLauncher();
+      await new Promise(r => setTimeout(r, 1000));
+      const restarted = await startLauncher();
+      sendMessage({ type: 'restarted', success: restarted });
+      break;
+
+    default:
+      nhLog('未知消息类型: ' + message.type);
+      sendMessage({ type: 'unknown', message: '未知消息类型: ' + message.type });
+  }
+}
+
+// ============================================================
 // 主函数
 // ============================================================
 async function main() {
@@ -280,6 +284,7 @@ async function main() {
     nhLog('stdin 错误: ' + e.message);
   });
 
+  // 立即发送 connect_ack
   sendMessage({
     type: 'connect_ack',
     status: 'alive',
@@ -287,12 +292,13 @@ async function main() {
     node: process.version,
     port: PORT
   });
-  nhLog('已发送 connect_ack (立即响应，防止 Chrome 超时断开)');
 
-  try { await fs.mkdir(WORKSPACE_DIR, { recursive: true }); } catch (e) {}
+  try { fs.mkdirSync(WORKSPACE_DIR, { recursive: true }); } catch (e) {}
 
+  // 启动 launcher
   isRunning = await startLauncher();
 
+  // 发送 started/start_failed
   sendMessage({
     type: isRunning ? 'started' : 'start_failed',
     port: PORT,
@@ -303,91 +309,8 @@ async function main() {
   });
   nhLog('已发送 ' + (isRunning ? 'started' : 'start_failed') + ' 消息');
 
-  let consecutiveNulls = 0;
-
-  while (true) {
-    if (process.stdin.readableEnded || process.stdin.destroyed) {
-      nhLog('stdin 已结束，退出主循环');
-      break;
-    }
-
-    try {
-      const message = await readMessage();
-      if (message === null) {
-        consecutiveNulls++;
-        if (consecutiveNulls > 15) {
-          nhLog('连续15次 null，检查 stdin 状态');
-          if (process.stdin.readableEnded || process.stdin.destroyed) break;
-          consecutiveNulls = 0;
-        }
-        await new Promise(r => setTimeout(r, 300));
-        continue;
-      }
-      consecutiveNulls = 0;
-
-      nhLog('收到消息: ' + message.type);
-
-      switch (message.type) {
-        case 'ping':
-          const healthy = await checkHealth(2000);
-          sendMessage({ type: 'pong', running: healthy });
-          break;
-
-        case 'stop':
-          nhLog('收到 stop 命令');
-          stopLauncher();
-          process.exit(0);
-          return;
-
-        case 'execute_tool':
-          const result = await handleExecuteTool(message);
-          sendMessage({ type: 'tool_result', ...result });
-          break;
-
-        case 'restart':
-          nhLog('收到 restart 命令');
-          stopLauncher();
-          await new Promise(r => setTimeout(r, 1000));
-          const restarted = await startLauncher();
-          sendMessage({ type: 'restarted', success: restarted });
-          break;
-
-        default:
-          nhLog('未知消息类型: ' + message.type);
-          sendMessage({ type: 'unknown', message: '未知消息类型: ' + message.type });
-      }
-    } catch (err) {
-      nhLog('消息处理错误: ' + err.message + '\n' + (err.stack || '').substring(0, 500));
-      if (process.stdin.readableEnded || process.stdin.destroyed) break;
-      await new Promise(r => setTimeout(r, 500));
-    }
-  }
-
-  nhLog('=== 进入守护模式 ===');
-  nhLog('浏览器已断开，launcher 继续保持运行...');
-  const IDLE_TIMEOUT = 30 * 60 * 1000;
-
-  daemonCleanup = setInterval(async () => {
-    try {
-      if (process.stdin.readable && !process.stdin.readableEnded && !process.stdin.destroyed) {
-        const msg = await readMessage();
-        if (msg !== null) {
-          nhLog('浏览器重连！收到: ' + msg.type);
-          if (msg.type === 'stop') {
-            nhLog('收到 stop 命令（守护模式）');
-            stopLauncher();
-            process.exit(0);
-          }
-        }
-      }
-    } catch (e) {}
-  }, 3000);
-
-  setTimeout(() => {
-    nhLog('守护超时 (' + (IDLE_TIMEOUT / 1000 / 60) + ' 分钟)，退出');
-    stopLauncher();
-    process.exit(0);
-  }, IDLE_TIMEOUT);
+  // 消息循环由 process.stdin data 事件驱动（见上方 processIncoming）
+  nhLog('等待消息...');
 }
 
 // ============================================================

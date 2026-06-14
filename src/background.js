@@ -1,10 +1,7 @@
-console.log('[Background] Service Worker 启动');
-
 var SERVER_URL = 'http://localhost:3002';
 chrome.storage.local.get(['dsConfig'], function(result) {
   if (result.dsConfig && result.dsConfig.serverUrl) {
     SERVER_URL = result.dsConfig.serverUrl;
-    console.log('[Background] 使用配置的服务器地址: ' + SERVER_URL);
   }
 });
 const NATIVE_HOST_NAME = 'com.deepseek.tool_agent';
@@ -22,6 +19,7 @@ let healthCheckInterval = null;
 let connectAttemptInProgress = false;
 var _pendingStartupRetries = 0;
 
+// NOTE: TOOL_DEFINITIONS also defined in injected.js (MAIN world) and tools/registry.js (ISOLATED world) — must keep in sync
 const TOOL_DEFINITIONS = [
   { name: "read_file", description: "读取本地文件的内容", parameters: { path: "文件的绝对路径 (string)" } },
   { name: "write_file", description: "写入内容到本地文件（不存在则创建，存在则覆盖）", parameters: { path: "文件的绝对路径 (string)", content: "要写入的文件内容 (string)" } },
@@ -67,6 +65,8 @@ async function fetchJSON(endpoint, body, retries) {
         body: JSON.stringify(body)
       });
       const data = await response.json();
+      // 约束拦截（blocked）不是错误，直接返回
+      if (data.blocked) return data;
       if (!data.success) {
         var errMsg = data.error ? (data.error.message || JSON.stringify(data.error)) : JSON.stringify(data);
         throw new Error(`服务器返回错误: ${errMsg} (HTTP ${response.status})`);
@@ -101,7 +101,6 @@ function formatSize(bytes) {
 }
 
 function bgLog(msg) {
-  console.log('[DS-BG] ' + msg);
 }
 
 async function checkHttpServer() {
@@ -127,20 +126,11 @@ function connectNativeHost() {
     return;
   }
 
-  // 如果 HTTP 服务已在运行，优先使用 HTTP 模式，不启动 Native Host
-  checkHttpServer().then(function(httpOk) {
-    if (httpOk && !nativePort) {
-      bgLog('HTTP 服务已在运行，使用 HTTP 模式，不创建 Native Port');
-      serverStatus = { running: true, mode: 'http' };
-      notifyStatus();
-      return;
-    }
-    doConnectNativeHost();
-  }).catch(function() {
-    doConnectNativeHost();
-  });
-
   lastConnectAttempt = now;
+
+  // 直接连接 Native Host，不先检查 HTTP
+  // Service Worker 可能在异步等待期间休眠
+  doConnectNativeHost();
 }
 
 function doConnectNativeHost() {
@@ -152,9 +142,23 @@ function doConnectNativeHost() {
     try {
       bgLog('connectNativeHost 开始 (attempt=' + reconnectAttempts + ')');
       bgLog('扩展ID: ' + (chrome.runtime.id || 'N/A'));
+      bgLog('Native Host 名称: ' + NATIVE_HOST_NAME);
 
       nativePort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
-      bgLog('connectNative() 返回: port=true');
+
+      // 检查 connectNative 是否立即失败
+      var lastErr = chrome.runtime.lastError;
+      if (lastErr) {
+        bgLog('connectNative 立即错误: ' + lastErr.message);
+        nativePort = null;
+        connectAttemptInProgress = false;
+        serverStatus = { running: false, mode: 'error', error: lastErr.message };
+        notifyStatus();
+        resolve(false);
+        return;
+      }
+
+      bgLog('connectNative() 返回: port=' + !!nativePort);
       reconnectAttempts = 0;
       var startupResolved = false;
 
@@ -285,6 +289,11 @@ async function executeTool(toolCall) {
       return { success: false, error: errorMsg, detail: { serverStatus: status } };
     }
     const result = await executor(args);
+    // 约束拦截结果直接返回
+    if (result.blocked) {
+      bgLog('工具 ' + name + ' 被约束拦截: ' + (result.reason || ''));
+      return { success: false, blocked: true, reason: result.reason, needsConfirmation: result.needsConfirmation, safetyLevel: result.safetyLevel, explanation: result.explanation, command: result.command, path: result.path };
+    }
     bgLog('工具 ' + name + ' 执行成功');
     return { success: true, data: result };
   } catch (error) {
@@ -379,70 +388,51 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       lastConnectAttempt = 0;
       bgLog('收到 connectNativeHost 请求');
 
-      checkHttpServer().then(function(httpOk) {
-        if (httpOk) {
-          bgLog('HTTP 已在运行，直接返回成功');
-          serverStatus = { running: true, mode: 'http' };
+      // 即使 HTTP 在运行，也要创建 Native Port 保持连接
+      // 否则 Native Host 进程会因为浏览器断开而退出
+      if (!nativePort) {
+        connectNativeHost();
+      }
+
+      var maxWait = 35000;
+      var pollInterval = 2000;
+      var firstCheckDelay = 3000;
+      var wasAcked = false;
+
+      function checkAndRespond() {
+        var elapsed = Date.now() - connStartTime;
+
+        if (!wasAcked && serverStatus.mode === 'native_starting') {
+          wasAcked = true;
+          bgLog('Native Host 已确认连接，等待服务器启动... (elapsed=' + elapsed + 'ms)');
+          setTimeout(checkAndRespond, 1500);
+          return;
+        }
+
+        if (serverStatus.running) {
+          bgLog('服务器就绪！elapsed=' + elapsed + 'ms');
           sendResponse({ success: true, status: serverStatus });
           notifyStatus();
           return;
         }
 
-        connectNativeHost();
-
-        var maxWait = 35000;
-        var pollInterval = 2000;
-        var firstCheckDelay = 3000;
-        var wasAcked = false;
-
-        function checkAndRespond() {
-          var elapsed = Date.now() - connStartTime;
-
-          if (!wasAcked && serverStatus.mode === 'native_starting') {
-            wasAcked = true;
-            bgLog('Native Host 已确认连接，等待服务器启动... (elapsed=' + elapsed + 'ms)');
-            setTimeout(checkAndRespond, 1500);
-            return;
-          }
-
-          if (serverStatus.running) {
-            bgLog('服务器就绪！elapsed=' + elapsed + 'ms');
-            sendResponse({ success: true, status: serverStatus });
-            notifyStatus();
-            return;
-          }
-
-          if (elapsed > maxWait) {
-            bgLog('连接超时 (' + elapsed + 'ms)，返回当前状态');
-            var resultSuccess = !!nativePort || serverStatus.running;
-            sendResponse({
-              success: resultSuccess,
-              status: serverStatus,
-              message: resultSuccess ? '正在启动中...' : '无法连接 Native Host，请手动启动服务'
-            });
-            notifyStatus();
-            return;
-          }
-
-          bgLog('仍在等待... elapsed=' + elapsed + 'ms, port=' + !!nativePort + ', running=' + serverStatus.running + ', mode=' + (serverStatus.mode || ''));
-          setTimeout(checkAndRespond, pollInterval);
+        if (elapsed > maxWait) {
+          bgLog('连接超时 (' + elapsed + 'ms)，返回当前状态');
+          var resultSuccess = !!nativePort || serverStatus.running;
+          sendResponse({
+            success: resultSuccess,
+            status: serverStatus,
+            message: resultSuccess ? '正在启动中...' : '无法连接 Native Host，请手动启动服务'
+          });
+          notifyStatus();
+          return;
         }
 
-        setTimeout(checkAndRespond, firstCheckDelay);
-      }).catch(function() {
-        connectNativeHost();
-        var maxWait = 35000;
-        function checkAndRespond() {
-          var elapsed = Date.now() - connStartTime;
-          if (serverStatus.running || elapsed > maxWait) {
-            sendResponse({ success: !!nativePort || serverStatus.running, status: serverStatus });
-            notifyStatus();
-          } else {
-            setTimeout(checkAndRespond, 2000);
-          }
-        }
-        setTimeout(checkAndRespond, 3000);
-      });
+        bgLog('仍在等待... elapsed=' + elapsed + 'ms, port=' + !!nativePort + ', running=' + serverStatus.running + ', mode=' + (serverStatus.mode || ''));
+        setTimeout(checkAndRespond, pollInterval);
+      }
+
+      setTimeout(checkAndRespond, firstCheckDelay);
       return true;
 
     case 'restartServer':
@@ -618,20 +608,10 @@ try {
 function startupServerRecovery() {
   bgLog('= SW 启动：恢复服务 =');
 
-  checkHttpServer().then(function(httpOk) {
-    if (httpOk) {
-      bgLog('  工具服务器已在运行 (HTTP 模式)');
-      serverStatus = { running: true, mode: 'http' };
-      notifyStatus();
-      return;
-    }
-
-    bgLog('  HTTP 未运行，立即连接 Native Host...');
-    tryNativeStartup(0);
-  }).catch(function() {
-    bgLog('  HTTP 检测失败，尝试 Native Host...');
-    tryNativeStartup(0);
-  });
+  // 直接尝试 Native Host 连接，不先检查 HTTP
+  // 因为 Service Worker 可能在异步等待期间休眠
+  bgLog('  直接连接 Native Host...');
+  tryNativeStartup(0);
 }
 
 function tryNativeStartup(retryCount) {

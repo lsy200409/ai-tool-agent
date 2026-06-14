@@ -16,7 +16,6 @@
         return;
       }
       this._adapters[adapter.id] = adapter;
-      console.log('[PlatformRegistry] 已注册平台适配器：' + adapter.id + ' (' + adapter.name + ')');
     },
 
     /**
@@ -30,11 +29,9 @@
         var adapter = this._adapters[id];
         if (adapter.hostPattern && adapter.hostPattern.test(host)) {
           this._current = adapter;
-          console.log('[PlatformRegistry] 检测到平台：' + adapter.id + ' (' + adapter.name + ')');
           return adapter;
         }
       }
-      console.log('[PlatformRegistry] 未检测到匹配的平台，当前主机：' + host);
       return null;
     },
 

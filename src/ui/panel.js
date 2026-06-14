@@ -40,7 +40,7 @@ function injectPanelHTML() {
   var pet = document.createElement('div');
   pet.id = '__ds-pet-ball';
   pet.innerHTML = '<span id="__ds-pet-dot"></span>\uD83E\uDD16';
-  pet.title = 'DS-Agent v2.6  |  Click to toggle panel  |  Ctrl+Shift+D';
+  pet.title = 'AI Tool Agent v0.1.1  |  Click to toggle panel  |  Ctrl+Shift+D';
   pet.addEventListener('mousedown', startPetDrag);
   document.body.appendChild(pet);
 
@@ -86,7 +86,7 @@ function buildPanelHTML() {
     '  <div id="__ds-header-left">',
     '    <span id="__ds-logo" class="ds-logo">[AI]</span>',
     '    <span id="__ds-title">Tool Agent</span>',
-    '    <span id="__ds-version">v3.0</span>',
+    '    <span id="__ds-version">v0.1.1</span>',
     '  </div>',
     '  <div id="__ds-status">',
     '    <span id="__ds-dot"></span>',
@@ -692,7 +692,7 @@ function scrollToLogBottom() {
 
 function exportLogs() {
   if (!executionHistory || executionHistory.length === 0) { logPanel('warn', 'No logs to export'); return; }
-  var text = '=== DS-Agent Logs ===\n';
+  var text = '=== AI Tool Agent Logs ===\n';
   for (var i = 0; i < executionHistory.length; i++) {
     text += '[' + (executionHistory[i].time || '--:--') + '] [' + (executionHistory[i].level || 'info').toUpperCase() + '] ' + (executionHistory[i].message || '') + '\n';
   }
@@ -704,52 +704,22 @@ function exportLogs() {
   logPanel('info', 'Logs exported');
 }
 
-function logPanel(level, message) {
-  var time = new Date().toTimeString().split(' ')[0];
-  executionHistory.push({ time: time, level: level, message: message });
-  if (executionHistory.length > 500) executionHistory = executionHistory.slice(-500);
-  renderLogs();
-  try { if (typeof saveLocalLog === 'function') saveLocalLog(level, message, time, new Date().toISOString()); } catch(e) {}
-  try { if (typeof sendLogToFile === 'function') sendLogToFile(level, message, new Date().toISOString()); } catch(e) {}
-}
+// logPanel is defined in core/logger.js (loaded first)
 
 // ============================================================
 // Server status
 // ============================================================
-function updateServerStatusUI(online) {
-  var dot = document.getElementById('__ds-dot');
-  var txt = document.getElementById('__ds-status-text');
-  if (dot) dot.className = online ? 'online' : 'offline';
-  if (txt) txt.textContent = online ? 'Connected' : 'Disconnected';
-
-  var dotColor = online ? '#5b8a4a' : '#c0bab0';
-  var dotShadow = online ? '0 0 6px rgba(91,138,74,0.4)' : 'none';
-  var petDot = document.getElementById('__ds-pet-dot');
-  var headerDot = document.getElementById('__ds-h-status-dot');
-  var serverStatusText = document.getElementById('__ds-server-status-text');
-  var panelStatusDot = document.getElementById('__ds-panel-status-dot');
-  var serverText = document.getElementById('__ds-server-text');
-  if (petDot) { petDot.style.background = dotColor; petDot.style.boxShadow = dotShadow; }
-  if (headerDot) { headerDot.style.background = dotColor; headerDot.style.boxShadow = dotShadow; }
-  if (serverStatusText) serverStatusText.textContent = online ? '✅ 已连接' : '❌ 未连接';
-  if (panelStatusDot) { panelStatusDot.className = online ? '__ds-status-connected' : '__ds-status-disconnected'; }
-  if (serverText) { serverText.textContent = online ? '已连接' : '未连接'; serverText.className = online ? '__ds-status-on' : '__ds-status-off'; }
-}
-
-function setStageText(text) {
-  var el = document.getElementById('__ds-status-text');
-  if (el) el.textContent = text || 'Connected';
-}
+// updateServerStatusUI and setStageText are defined in connection.js (loaded first)
 
 function updateSSEIndicator(active) {
   var badge = document.getElementById('__ds-sse-badge');
   if (!badge) return;
   if (active) {
     badge.classList.add('active');
-    badge.title = 'SSE Stream Intercept: Active (v2.6)';
+    badge.title = 'SSE Stream Intercept: Active (v0.1.1)';
   } else {
     badge.classList.remove('active');
-    badge.title = 'SSE Stream Intercept: Idle (v2.6)';
+    badge.title = 'SSE Stream Intercept: Idle (v0.1.1)';
   }
 }
 
@@ -818,18 +788,13 @@ function escapeAttr(s) {
 // Exports to window (for actions.js / external callers)
 // ============================================================
 window.injectOperationPanel = injectPanelHTML;
-window.updateServerStatusUI = updateServerStatusUI;
-window.setStageText = setStageText;
 window.renderToolsList = renderToolsList;
 window.renderSkillsList = renderSkillsList;
 window.updateAgentPanelUI = updateAgentPanelUI;
 window.renderLogs = renderLogs;
 window.updateQuickActionButtons = updateQuickActionButtons;
-window.showConfigModal = function() {};
 window.showQuickActionsEditor = showQAEditor;
-window.showSettingsModal = function() {};
 window.hideAllModals = hideAllModals;
-window.logPanel = logPanel;
 window.updateSSEIndicator = updateSSEIndicator;
 window.switchLeftTab = switchLeftTab;
 window.__ds_retryConnect = function() { logPanel('info', '手动重试连接...'); if (typeof window.ensureServerRunning === 'function') window.ensureServerRunning(); };
@@ -843,7 +808,6 @@ window.__ds_retryConnect = function() { logPanel('info', '手动重试连接...'
   injectPanelHTML();
   var pet = document.getElementById('__ds-pet-ball');
   var panel = document.getElementById('__ds-agent-panel');
-  console.log('[DS-Agent v2.6] Panel injected. Pet:', !!pet, 'Panel:', !!panel, 'Panel display:', panel ? panel.style.display : 'N/A');
 
   var __ds_healthTimer = null;
 
@@ -865,6 +829,4 @@ window.__ds_retryConnect = function() { logPanel('info', '手动重试连接...'
   setTimeout(function() {
     startHealthPolling();
   }, 1000);
-
-  console.log('[DS-Agent v2.6] Panel injected with Chromium UI tokens + SSE Stream Intercept');
 })();
