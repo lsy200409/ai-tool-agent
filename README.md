@@ -429,6 +429,13 @@ ai-tool-agent/
 
 ---
 
+## 致谢
+
+本项目的设计思路和工具调用方案受到以下项目的启发：
+
+- [openclaw-zero-token](https://github.com/linuxhsj/openclaw-zero-token) — 工具调用提示词注入、SSE 流式解析、多平台适配器架构的核心思路来源
+- [DeepSeek++](https://github.com/zhu1090093659/deepseek-pp) — XML 格式工具调用解析参考
+
 ## 许可证
 
 [MIT License](LICENSE)
