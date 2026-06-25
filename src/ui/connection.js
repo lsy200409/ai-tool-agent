@@ -18,12 +18,22 @@ function keepBackgroundAlive() {
   }
 }
 
+var _heartbeatTimer = null;
+
 function startHeartbeat() {
-  setInterval(function() {
+  stopHeartbeat(); // 清除旧的定时器
+  _heartbeatTimer = setInterval(function() {
     if (bgPort) {
       try { bgPort.postMessage({ type: 'ping' }); __lastPingTime = Date.now(); } catch(e) { bgPort = null; __connectionHealthy = false; keepBackgroundAlive(); }
     } else { keepBackgroundAlive(); }
   }, 10000);
+}
+
+function stopHeartbeat() {
+  if (_heartbeatTimer) {
+    clearInterval(_heartbeatTimer);
+    _heartbeatTimer = null;
+  }
 }
 
 async function checkServerStatus() {

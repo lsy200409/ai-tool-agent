@@ -33,6 +33,8 @@ function injectScript() {
 }
 
 function handlePageMessage(event) {
+  // 安全检查：只接受同源消息，防止恶意 iframe 伪造 __ds_inject_result
+  if (event.origin !== window.location.origin) return;
   if (!event.data || typeof event.data !== 'object') return;
   if (event.data.type === '__ds_inject_result') {
     var requestId = event.data.requestId;
@@ -44,7 +46,7 @@ function sendInjectRequest(autoSend, originalMessage) {
   return new Promise(function(resolve) {
     var requestId = ++requestIdCounter;
     pendingRequests[requestId] = resolve;
-    window.postMessage({ type: '__ds_inject_tool', autoSend: autoSend, originalMessage: originalMessage, requestId: requestId }, '*');
+    window.postMessage({ type: '__ds_inject_tool', autoSend: autoSend, originalMessage: originalMessage, requestId: requestId }, window.location.origin);
     setTimeout(function() { if (pendingRequests[requestId]) { delete pendingRequests[requestId]; resolve({ success: false, error: '注入超时' }); } }, 5000);
   });
 }

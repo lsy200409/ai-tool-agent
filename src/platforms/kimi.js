@@ -41,24 +41,49 @@
       },
 
       binaryStream: true,
+      // op==='set' 返回的是累积文本，需要标记以便上层正确处理
+      cumulativeContent: true,
 
       // Connect RPC 二进制帧解析
+      // 注意：buffer 已经被 TextDecoder 解码为字符串，len 字段是原始字节数，
+      // 但 UTF-8 多字节字符（如中文）解码后 1字符≠1字节，不能用 substring 按字节偏移截取。
+      // 改用 JSON 感知提取：跳过帧头，通过大括号匹配找到完整 JSON 边界。
       parseBinaryFrame: function(buffer) {
-        // Connect RPC: 1字节标志 + 4字节大端长度 + JSON payload
         var frames = [];
         var offset = 0;
-        while (offset + 5 <= buffer.length) {
-          var flag = buffer.charCodeAt(offset);
-          var len = ((buffer.charCodeAt(offset+1) & 0xFF) << 24) |
-                    ((buffer.charCodeAt(offset+2) & 0xFF) << 16) |
-                    ((buffer.charCodeAt(offset+3) & 0xFF) << 8) |
-                    (buffer.charCodeAt(offset+4) & 0xFF);
-          if (offset + 5 + len > buffer.length) break;
-          var payload = buffer.substring(offset + 5, offset + 5 + len);
-          try {
-            frames.push(JSON.parse(payload));
-          } catch(e) {}
-          offset += 5 + len;
+        while (offset < buffer.length) {
+          // 跳过帧头（1字节标志 + 4字节长度 = 5字节），查找 JSON 起始位置
+          var jsonStart = buffer.indexOf('{', offset);
+          if (jsonStart < 0) break;
+
+          // 通过大括号深度匹配找到完整 JSON 边界
+          var depth = 0;
+          var inStr = false;
+          var escape = false;
+          var jsonEnd = -1;
+          for (var i = jsonStart; i < buffer.length; i++) {
+            var ch = buffer[i];
+            if (escape) { escape = false; continue; }
+            if (ch === '\\') { escape = true; continue; }
+            if (ch === '"' && !inStr) { inStr = true; continue; }
+            if (ch === '"' && inStr) { inStr = false; continue; }
+            if (inStr) continue;
+            if (ch === '{') depth++;
+            if (ch === '}') { depth--; if (depth === 0) { jsonEnd = i + 1; break; } }
+          }
+
+          if (jsonEnd > 0) {
+            var jsonStr = buffer.substring(jsonStart, jsonEnd);
+            try {
+              frames.push(JSON.parse(jsonStr));
+              offset = jsonEnd;
+            } catch(e) {
+              // JSON 解析失败，跳过当前 '{' 继续查找
+              offset = jsonStart + 1;
+            }
+          } else {
+            break;
+          }
         }
         return { frames: frames, consumed: offset };
       }
@@ -142,7 +167,7 @@
       // 使用 execCommand 插入文本
       var ok = document.execCommand('insertText', false, value);
 
-      // 如果 execCommand 不生效，fallback
+      // execCommand('insertText') 对长文本可能静默失败，fallback 到手动构建 DOM
       if (!ok || !element.textContent || element.textContent.trim() === '') {
         element.innerHTML = '';
         var lines = value.split('\n');

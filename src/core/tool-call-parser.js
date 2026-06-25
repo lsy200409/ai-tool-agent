@@ -13,9 +13,15 @@ function parseToolCallContent(content, defaultName) {
     return null;
   } catch (e) {}
 
+  // 移除字符串字面量后再计算花括号，避免字符串内的花括号污染计数
+  function stripStrings(t) {
+    return t.replace(/"(?:[^"\\]|\\.)*"/g, '""').replace(/'(?:[^'\\]|\\.)*'/g, "''");
+  }
+
   // 处理 JSON 截断 (常见于流式输出)
-  var opens = (text.match(/\{/g) || []).length;
-  var closes = (text.match(/\}/g) || []).length;
+  var stripped = stripStrings(text);
+  var opens = (stripped.match(/\{/g) || []).length;
+  var closes = (stripped.match(/\}/g) || []).length;
   if (opens > closes) {
     try {
       var fixed = JSON.parse(text + '}'.repeat(opens - closes));
@@ -26,7 +32,9 @@ function parseToolCallContent(content, defaultName) {
       if (defaultName && typeof fixed === 'object' && Object.keys(fixed).length > 0) {
         return { tool: defaultName, parameters: fixed };
       }
-    } catch (e2) {}
+    } catch (e) {
+    console.warn('[Parser] JSON修复失败:', e.message, '| 文本:', text.substring(0, 80));
+  }
   }
 
   // 处理常见工具的 fallback
@@ -102,7 +110,25 @@ function parseToolCalls(text) {
     }
   }
 
-  return results;
+  // 去重：相同工具名+参数只执行一次
+  var seen = {};
+  var deduped = [];
+  // 检测显式任务完成标记
+  var taskComplete = /<task_complete[\s\S]*?<\/task_complete>/i.test(fixedText) ||
+                     /<task_complete\s*\/>/i.test(fixedText);
+  if (taskComplete) {
+    // 返回特殊标记，让 monitor 知道任务已完成
+    results.push({ rawTag: '<task_complete/>', name: '__task_complete__', arguments: {}, index: -1 });
+  }
+  for (var j = 0; j < results.length; j++) {
+    var key = results[j].name + '::' + JSON.stringify(results[j].arguments || {});
+    if (!seen[key]) {
+      seen[key] = true;
+      deduped.push(results[j]);
+    }
+  }
+
+  return deduped;
 }
 
 if (typeof module !== 'undefined' && module.exports) {

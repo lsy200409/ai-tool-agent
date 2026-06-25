@@ -1,4 +1,5 @@
-async function loadFileBrowser(dirPath) {
+async function loadFileBrowser(dirPath, _retryCount) {
+  _retryCount = _retryCount || 0;
   var treeEl = document.getElementById('__ds-file-tree');
   if (!treeEl) return;
   treeEl.innerHTML = '<div class="__ds-file-loading">加载中...</div>';
@@ -18,10 +19,19 @@ async function loadFileBrowser(dirPath) {
       logPanel('info', '服务器未运行，尝试通过 Native Host 连接...');
       try {
         var nativeResp = await chrome.runtime.sendMessage({ action: 'connectNativeHost' });
-        if (nativeResp && nativeResp.status && nativeResp.status.running) { logPanel('success', 'Native Host 已连接 ✅'); updateServerStatusUI(true); return loadFileBrowser(dirPath); }
+        if (nativeResp && nativeResp.status && nativeResp.status.running) { logPanel('success', 'Native Host 已连接 ✅'); updateServerStatusUI(true); return loadFileBrowser(dirPath, _retryCount + 1); }
       } catch(nativeErr) {
         var neMsg = nativeErr.message || '';
-        if (neMsg.indexOf('Extension context invalidated') >= 0 || neMsg.indexOf('disconnected') >= 0) { logPanel('warn', 'Service Worker 重启中，稍后重试...'); await sleep(2000); return loadFileBrowser(dirPath); }
+        if (neMsg.indexOf('Extension context invalidated') >= 0 || neMsg.indexOf('disconnected') >= 0) {
+          logPanel('warn', 'Service Worker 重启中，稍后重试...');
+          if (_retryCount < 3) {
+            await sleep(2000);
+            return loadFileBrowser(dirPath, _retryCount + 1);
+          } else {
+            showBrowserError('无法连接到服务器，请检查服务器是否运行');
+            return;
+          }
+        }
         logPanel('warn', 'loadFileBrowser Native Host 异常: ' + neMsg);
       }
       showStartupGuide();

@@ -125,27 +125,50 @@
       ],
 
       findSendButton: function() {
-        // z.ai: 发送按钮 id="send-message-button"
+        // z.ai 发送按钮可能在 textarea 附近的 form 内
+        // 优先查找已知 ID（旧版 DOM）
         var sendBtn = document.getElementById('send-message-button');
         if (sendBtn && sendBtn.clientHeight > 0) return sendBtn;
-        // class 查找
-        var btns = document.querySelectorAll('button.sendMessageButton, button[type="submit"]');
-        for (var i = 0; i < btns.length; i++) {
-          if (btns[i].clientHeight > 0 && btns[i].id === 'send-message-button') return btns[i];
-        }
-        // 备选：在 textarea 附近查找 submit 按钮
-        var textarea = document.querySelector('textarea#chat-input');
+
+        // 在 textarea 附近查找发送按钮
+        var textarea = document.querySelector('textarea#chat-input, textarea[placeholder*="帮您"], textarea[placeholder*="help"]');
         if (textarea) {
+          // 向上遍历父级查找 form 内的 submit 按钮
           var walk = textarea.parentElement;
-          for (var j = 0; j < 5; j++) {
+          for (var j = 0; j < 8; j++) {
             if (!walk) break;
+            // 优先查找 type=submit 的按钮（z.ai 的发送按钮是 submit 类型）
             var submitBtns = walk.querySelectorAll('button[type="submit"]');
             for (var k = 0; k < submitBtns.length; k++) {
-              if (submitBtns[k].clientHeight > 0) return submitBtns[k];
+              var btn = submitBtns[k];
+              // 排除已知非发送按钮（上传、侧边栏等）
+              if (btn.clientHeight <= 0) continue;
+              if (btn.id === 'upload-file-button' || btn.id === 'sidebar-new-chat-button') continue;
+              if (btn.id && btn.id.indexOf('bits-') === 0) continue;
+              // z.ai 发送按钮特征：bg-black 或包含 SVG 箭头
+              var cls = btn.className || '';
+              if (cls.indexOf('bg-black') >= 0 || cls.indexOf('bg-gray-900') >= 0) return btn;
+            }
+            // 也检查 type=button 的按钮
+            var normalBtns = walk.querySelectorAll('button:not([type="submit"])');
+            for (var m = 0; m < normalBtns.length; m++) {
+              var nb = normalBtns[m];
+              if (nb.clientHeight <= 0) continue;
+              if (nb.id === 'upload-file-button') continue;
+              if (nb.id && nb.id.indexOf('bits-') === 0) continue;
+              var ncls = nb.className || '';
+              if (ncls.indexOf('bg-black') >= 0 || ncls.indexOf('sendMessageButton') >= 0) return nb;
             }
             walk = walk.parentElement;
           }
         }
+
+        // fallback: 全局查找 sendMessageButton class
+        var btns = document.querySelectorAll('button.sendMessageButton');
+        for (var i = 0; i < btns.length; i++) {
+          if (btns[i].clientHeight > 0) return btns[i];
+        }
+
         return null;
       },
 
@@ -168,14 +191,14 @@
       },
 
       detectStreaming: function() {
-        // z.ai: 发送按钮变为灰色/不可用时表示正在生成
-        var sendBtn = document.getElementById('send-message-button');
+        // z.ai: 通过发送按钮状态检测是否正在生成
+        var sendBtn = this.dom.findSendButton();
         if (sendBtn) {
+          // 按钮不可用/灰色 = 正在生成
+          if (sendBtn.disabled) return true;
           var cls = sendBtn.className || '';
-          // 发送按钮有 disabled 样式时表示正在生成
-          if (cls.indexOf('bg-[#E0E0E0]') >= 0 || cls.indexOf('text-[#110F0F]/20') >= 0) {
-            // 按钮是灰色 = 正在生成
-            // 但初始状态也是灰色... 需要更精确的判断
+          if (cls.indexOf('bg-[#E0E0E0]') >= 0 || cls.indexOf('opacity-50') >= 0 || cls.indexOf('pointer-events-none') >= 0) {
+            return true;
           }
         }
         // 检查是否有停止按钮
@@ -186,26 +209,33 @@
     },
 
     setInputValue: function(element, value) {
-      // z.ai 使用 textarea
+      // z.ai 使用 Svelte 框架的 textarea
+      // 优先使用原生 setter（支持任意长度文本），insertText 对长文本会静默失败
       element.focus();
-      element.select();
-      document.execCommand('delete', false, null);
-      var ok = document.execCommand('insertText', false, value);
-      if (!ok) {
-        // fallback: 原生 setter
-        try {
-          var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
-          if (setter && setter.set) setter.set.call(element, value);
-          else element.value = value;
-        } catch(e) { element.value = value; }
-        element.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: value }));
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-      }
+      try {
+        var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+        if (setter && setter.set) setter.set.call(element, value);
+        else element.value = value;
+      } catch(e) { element.value = value; }
+      // 触发 Svelte 的 input 事件让框架感知值变化
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
     },
 
     sendMessage: function() {
       var btn = this.dom.findSendButton();
-      if (btn) { btn.click(); return true; }
+      if (btn) {
+        // 如果按钮 disabled，等待框架更新（Svelte 响应式需要一帧）
+        if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') {
+          // 同步等待：不返回 Promise（调用方不处理 Promise）
+          var btn2 = document.getElementById('send-message-button');
+          if (btn2 && !btn2.disabled) { btn2.click(); return true; }
+          // 按钮仍 disabled，走 fallback
+        } else {
+          btn.click();
+          return true;
+        }
+      }
       // fallback: Enter
       var input = typeof findChatInput === 'function' ? findChatInput() : null;
       return PlatformAdapter.sendMessageFallback(input);

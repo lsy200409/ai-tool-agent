@@ -267,6 +267,20 @@ async function triggerQuickAction(promptOrIndex) {
 // § 3. Tool Prompt Injection — 工具提示词注入
 // ═══════════════════════════════════════════════════════════
 async function injectToolPrompt() {
+  // 去重检查：防止同一会话重复注入
+  if (window.__ds_toolPromptInjected) {
+    logPanel('warn', '工具提示词已在本会话注入过，跳过重复注入');
+    return;
+  }
+  var preCheck = findChatInput();
+  if (preCheck) {
+    var curVal = preCheck.value || preCheck.textContent || '';
+    if (curVal.indexOf('## 内置工具') >= 0 || curVal.indexOf('## 可用工具') >= 0) {
+      logPanel('warn', '输入框中已存在工具提示词，跳过注入');
+      return;
+    }
+  }
+
   logPanel('info', '正在获取实时工具列表...');
   try {
     var toolsResp = await apiGetJson('/api/tools');
@@ -276,52 +290,126 @@ async function injectToolPrompt() {
     }
 
     var tools = toolsResp.tools;
-    var autoTools = [];
-    var otherTools = [];
+    var builtinTools = [];
+    var pluginTools = [];
+    var mcpTools = [];
+    var managerTools = [];
 
     for (var i = 0; i < tools.length; i++) {
       var t = tools[i];
       if (t.pluginId === 'builtin' && t.name.indexOf('plugin_') === 0) {
-        otherTools.push(t);
+        managerTools.push(t);
+      } else if (t.source === 'mcp') {
+        mcpTools.push(t);
+      } else if (t.pluginId && t.pluginId !== 'builtin') {
+        pluginTools.push(t);
       } else {
-        autoTools.push(t);
+        builtinTools.push(t);
       }
     }
 
-    var prompt = '你是 AI 助手，可以使用以下真实工具完成任务。\n\n## 可用工具\n\n';
+    var prompt = '';
+    prompt += '你是 AI 助手，可以使用以下真实工具完成任务。\n\n';
+    prompt += '## 环境\n';
+    prompt += '- 操作系统: Windows (cmd.exe)\n';
+    prompt += '- 文件路径: 使用反斜杠 C:\\path\\file.txt 或正斜杠 C:/path/file.txt\n';
+    prompt += '- exec_command 通过 cmd.exe /c 执行，支持所有 cmd 内部命令\n\n';
+    prompt += '## 工作区\n';
+    prompt += '- 工作区根目录是 AI 可读写的范围，路径相对于此目录\n';
+    prompt += '- 不要在前缀添加 "workspace/"，直接从项目目录开始写\n\n';
 
-    for (var i = 0; i < autoTools.length; i++) {
-      var t = autoTools[i];
+    prompt += '## 内置工具\n\n';
+    for (var i = 0; i < builtinTools.length; i++) {
+      var t = builtinTools[i];
       prompt += '### ' + t.name + '\n';
-      prompt += t.description + '\n';
+      prompt += (t.description || t.label || '') + '\n';
       var props = (t.parameters && t.parameters.properties) ? t.parameters.properties : {};
       var required = (t.parameters && t.parameters.required) || [];
       var keys = Object.keys(props);
       for (var j = 0; j < keys.length; j++) {
         var k = keys[j];
-        prompt += '  ' + k + ': ' + props[k].type + (required.indexOf(k) >= 0 ? ' [必填]' : ' [可选]') + '\n';
+        prompt += '  ' + k + ': ' + (props[k].type || 'string') + (required.indexOf(k) >= 0 ? ' [必填]' : ' [可选]') + ' — ' + (props[k].description || '') + '\n';
       }
       prompt += '\n';
     }
 
-    if (otherTools.length > 0) {
-      prompt += '## 插件管理工具\n\n';
-      for (var i = 0; i < otherTools.length; i++) {
-        var t = otherTools[i];
-        prompt += '### ' + t.name + '\n' + t.description + '\n\n';
+    if (pluginTools.length > 0) {
+      prompt += '## 插件工具\n\n';
+      for (var i = 0; i < pluginTools.length; i++) {
+        var t = pluginTools[i];
+        prompt += '### ' + t.name + '\n';
+        prompt += (t.description || '') + '\n';
+        var props = (t.parameters && t.parameters.properties) ? t.parameters.properties : {};
+        var required = (t.parameters && t.parameters.required) || [];
+        var keys = Object.keys(props);
+        for (var j = 0; j < keys.length; j++) {
+          var k = keys[j];
+          prompt += '  ' + k + ': ' + (props[k].type || 'string') + (required.indexOf(k) >= 0 ? ' [必填]' : ' [可选]') + ' — ' + (props[k].description || '') + '\n';
+        }
+        prompt += '\n';
+      }
+    }
+
+    if (mcpTools.length > 0) {
+      prompt += '## MCP 远程工具\n\n';
+      for (var i = 0; i < mcpTools.length; i++) {
+        var t = mcpTools[i];
+        prompt += '### ' + t.name + '\n' + (t.description || '') + '\n\n';
+      }
+    }
+
+    if (managerTools.length > 0) {
+      prompt += '## 管理工具\n\n';
+      for (var i = 0; i < managerTools.length; i++) {
+        var t = managerTools[i];
+        prompt += '### ' + t.name + '\n' + (t.description || '') + '\n\n';
       }
     }
 
     prompt += '## 调用格式\n';
-    prompt += '<tool_call name="工具名">\n{"参数":"值"}\n</tool_call>\n\n';
-    prompt += '结果以 <tool_response status="ok|error"> 返回。无需工具时直接回复。';
+    prompt += '需要调用工具时输出:\n';
+    prompt += '<tool_call name="工具名">\n{"参数名":"参数值"}\n</tool_call\n\n';
+    prompt += '示例:\n';
+    prompt += '<tool_call name="exec_command">\n{"command":"echo Hello World"}\n</tool_call\n\n';
+    prompt += '<tool_call name="read_file">\n{"path":"C:/test.txt"}\n</tool_call\n\n';
+    prompt += '## 规则\n';
+    prompt += '1. 可以连续调用多个工具\n';
+    prompt += '2. 工具调用会按顺序执行，结果会按顺序返回\n';
+    prompt += '3. 路径请使用绝对路径\n';
+    prompt += '4. 不需要工具时直接回答\n\n';
+    prompt += '## 错误处理\n';
+    prompt += '- 工具执行失败时，错误信息会以 <tool_response status="error"> 格式返回\n';
+    prompt += '- "ENOENT" 表示命令或路径不存在，请检查拼写或用其他方式实现目标\n';
+    prompt += '- "EPERM" 表示权限不足，尝试换个目录操作\n';
+    prompt += '- 若某个工具执行失败，请分析错误原因后尝试其他替代方案完成任务';
+
+    prompt += '\n\n## 工具使用决策树\n';
+    prompt += '- 需要读文件内容 → 用 read_file（不要用 exec_command + type/cat）\n';
+    prompt += '- 需要写文件 → 用 write_file（不要用 exec_command + echo）\n';
+    prompt += '- 需要搜索文件名 → 用 search_files（不要用 exec_command + dir/find）\n';
+    prompt += '- 需要执行命令/脚本 → 用 exec_command\n';
+    prompt += '- 需要查看目录结构 → 用 list_dir（不要用 exec_command + dir）\n';
+    prompt += '- 复杂任务(3步以上) → 先调用 task_plan 制定计划，每完成一步更新状态\n';
+    prompt += '- 上下文被截断 → 调用 get_tool_history 找回之前的工具结果\n\n';
+
+    prompt += '## 常见错误用法（禁止）\n';
+    prompt += '- read_file 参数 path 使用相对路径但不以工作区目录开头 → 必须用绝对路径或工作区相对路径\n';
+    prompt += '- exec_command 执行 rm -rf / 等危险命令 → 会被安全策略拦截\n';
+    prompt += '- 连续调用相同工具相同参数超过3次 → 可能陷入循环，应换方法\n';
+    prompt += '- 工具失败后不分析原因直接重试 → 应先阅读错误提示中的建议\n\n';
+
+    prompt += '## 思考节奏\n';
+    prompt += '每次调用工具前，先思考: 1)我为什么要调用这个工具 2)预期得到什么结果 3)如果失败了替代方案是什么\n';
+    prompt += '收到工具结果后，先验证结果是否符合预期，再决定下一步。\n';
+    prompt += '当任务完成时，直接回复用户总结，不要调用工具。也可以输出 <task_complete></task_complete> 显式标记完成。';
 
     var input = findChatInput();
     if (input) {
       setInputValue(input, prompt);
       await sleep(400);
       clickSendButton();
-      logPanel('success', '工具提示词已注入 (' + tools.length + ' 个工具, 含插件)');
+      window.__ds_toolPromptInjected = true;
+      logPanel('success', '工具提示词已注入 (' + builtinTools.length + ' 内置' + (pluginTools.length > 0 ? ', ' + pluginTools.length + ' 插件' : '') + (mcpTools.length > 0 ? ', ' + mcpTools.length + ' MCP' : '') + ')');
     } else {
       logPanel('error', '找不到输入框');
     }

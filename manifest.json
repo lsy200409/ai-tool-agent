@@ -2,7 +2,7 @@
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1WBfqy3mOJ/gtVBe2q7lFPy1mUnrHruGsVEB1k8fyKuLqX/24Bzzp4zU3anv2nzyd2rwK7sxet0JQ3sYQ90gSilNpfoGHigXfuQZ/9E8vGyLsje9jC/p6V7zs6dhXdnhez/LOV59EIJ4zSkgju9h6L57TLBskkJ4rm1ilgMn1JObIr7ouuKjJPolLYEMWBC121t+6uBtUIeEr+YAe4kXugEbw9vrLhbwsJr/YkDsO8Mrw6t4GVjAVsDqGDiMFbKIkZqkvVdzm6k43MBP3JpPh+blA/uWi9+Ys4SBBXgxzveTaZFRNboMsMVQlRl06KKd26qXUuqlKbH74h6ZkWpk7QIDAQAB",
   "manifest_version": 3,
   "name": "AI Tool Agent",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "为 AI 网页版添加本地工具调用能力 - 支持 DeepSeek/ChatGPT/Kimi/通义千问/智谱/豆包",
   "permissions": [
     "activeTab",

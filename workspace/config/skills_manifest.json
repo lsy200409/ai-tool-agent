@@ -1,7 +1,175 @@
 {
   "enabled_skills": [
     {
-      "name": "code_review",
+      "name": "agent",
+      "enabled": true
+    },
+    {
+      "name": "dev/code-review",
+      "enabled": true
+    },
+    {
+      "name": "money/diagnosis",
+      "enabled": true
+    },
+    {
+      "name": "money/training/decision",
+      "enabled": true
+    },
+    {
+      "name": "money/training/execution",
+      "enabled": true
+    },
+    {
+      "name": "money/training/onion-review",
+      "enabled": true
+    },
+    {
+      "name": "money/training/project-diagnosis",
+      "enabled": true
+    },
+    {
+      "name": "money/training/money-model",
+      "enabled": true
+    },
+    {
+      "name": "money/training/knowledge-management",
+      "enabled": true
+    },
+    {
+      "name": "money/training/meta-cognition",
+      "enabled": true
+    },
+    {
+      "name": "money/practice/xiaohongshu",
+      "enabled": true
+    },
+    {
+      "name": "money/practice/xianyu",
+      "enabled": true
+    },
+    {
+      "name": "money/practice/knowledge-payment",
+      "enabled": true
+    },
+    {
+      "name": "money/practice/ai-agent",
+      "enabled": true
+    },
+    {
+      "name": "money/practice/info-radar",
+      "enabled": true
+    },
+    {
+      "name": "office/docx",
+      "enabled": true
+    },
+    {
+      "name": "office/pdf",
+      "enabled": true
+    },
+    {
+      "name": "office/pptx",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-doc",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-base",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-slides",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-sheets",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-im",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-task",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-calendar",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-mail",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-drive",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-wiki",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-approval",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-attendance",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-contact",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-minutes",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-okr",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-vc",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-vc-agent",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-whiteboard",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-markdown",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-event",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-openapi-explorer",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-skill-maker",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-shared",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-workflow-meeting-summary",
+      "enabled": true
+    },
+    {
+      "name": "integrations/lark/lark-workflow-standup-report",
       "enabled": true
     },
     {
@@ -10,18 +178,6 @@
     },
     {
       "name": "skill-creator",
-      "enabled": true
-    },
-    {
-      "name": "pptx",
-      "enabled": true
-    },
-    {
-      "name": "docx",
-      "enabled": true
-    },
-    {
-      "name": "pdf",
       "enabled": true
     }
   ],

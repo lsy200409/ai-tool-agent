@@ -89,7 +89,9 @@ function addStageLog(level, title, content, details) {
   executionHistory.push({
     id: 'log_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
     type: 'log_' + level,
+    level: level,
     title: title,
+    message: content || '',
     content: content || '',
     isError: level === 'error' || level === 'warn',
     time: new Date().toLocaleTimeString(),
@@ -100,9 +102,21 @@ function addStageLog(level, title, content, details) {
 }
 
 function addHistoryCard(type, title, content, isError, details) {
+  // 从 type 推断 level
+  var level = 'info';
+  if (type === 'tool_call') level = 'info';
+  else if (type === 'tool_output') level = isError ? 'error' : 'success';
+  else if (type === 'tool_detect') level = 'info';
+  else if (type === 'task_send') level = 'info';
+  else if (type === 'phase_complete') level = 'success';
+  else if (type === 'inject') level = 'info';
+  else if (isError) level = 'error';
+
   executionHistory.push({
     id: Date.now() + '_' + Math.random().toString(36).substr(2, 6),
-    type: type, title: title, content: content || '',
+    type: type, level: level,
+    title: title, message: content || '',
+    content: content || '',
     isError: !!isError, time: new Date().toLocaleTimeString(),
     expanded: false, details: details || null
   });

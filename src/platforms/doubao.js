@@ -60,7 +60,9 @@
         return null;
       },
 
-      binaryStream: false
+      binaryStream: false,
+      // content_block 返回的是累积文本，需要标记以便上层正确处理
+      cumulativeContent: true
     },
 
     dom: {
@@ -163,21 +165,14 @@
 
     setInputValue: function(element, value) {
       // 豆包使用 textarea (Semi Design)
+      // 原生 setter 优先（execCommand('insertText') 对长文本静默失败）
       element.focus();
-      // 先清空
-      element.select();
-      document.execCommand('delete', false, null);
-      // 使用 execCommand 模拟真实输入（React/Semi Design 能检测到）
-      if (document.execCommand('insertText', false, value)) {
-        return;
-      }
-      // fallback: 原生 setter + InputEvent
       try {
         var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
         if (setter && setter.set) setter.set.call(element, value);
         else element.value = value;
       } catch(e) { element.value = value; }
-      element.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: value }));
+      element.dispatchEvent(new Event('input', { bubbles: true }));
       element.dispatchEvent(new Event('change', { bubbles: true }));
     },
 

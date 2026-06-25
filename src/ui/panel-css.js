@@ -73,7 +73,7 @@ function injectPanelCSS() {
     '/* ===== Panel Container ===== */',
     '#__ds-agent-panel * { box-sizing: border-box; margin: 0; padding: 0; }',
     '#__ds-agent-panel {',
-    '  position: fixed; bottom: 120px; right: 20px; z-index: 2147483640;',
+    '  position: fixed; top: 20px; left: 20px; z-index: 2147483640;',
     '  width: 760px; height: 520px; background: var(--ds-surface);',
     '  border: 1px solid var(--ds-border); border-radius: var(--ds-radius-xl);',
     '  font-family: var(--ds-font); font-size: var(--ds-fs-base);',
@@ -776,8 +776,13 @@ function injectPanelCSS() {
     '}',
     '#__ds-left-tools.active { display: flex; }',
     '#__ds-left-tools .ds-tool-list {',
-    '  flex: 1; overflow-y: auto; padding: 6px 8px;',
+    '  flex: 1; overflow-y: auto; padding: 6px 8px; min-height: 0;',
     '}',
+    '#__ds-left-tools .ds-skills-list {',
+    '  flex: 1; overflow-y: auto; padding: 6px 8px; min-height: 0;',
+    '}',
+    '.ds-left-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; min-height: 0; }',
+    '.ds-left-panel.active { display: flex; }',
   ].join('\n');
   document.head.appendChild(s);
 }

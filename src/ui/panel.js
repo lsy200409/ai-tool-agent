@@ -6,6 +6,8 @@
 // NOTE: agentTools/agentSkills/executionHistory 在 state.js 中声明
 // ============================================================
 
+var PANEL_VERSION = '0.1.1';
+
 var agentPersonality = null;
 var agentCustomSkills = [];
 var quickActions = [];
@@ -40,7 +42,7 @@ function injectPanelHTML() {
   var pet = document.createElement('div');
   pet.id = '__ds-pet-ball';
   pet.innerHTML = '<span id="__ds-pet-dot"></span>\uD83E\uDD16';
-  pet.title = 'AI Tool Agent v0.1.1  |  Click to toggle panel  |  Ctrl+Shift+D';
+  pet.title = 'AI Tool Agent v' + PANEL_VERSION + '  |  Click to toggle panel  |  Ctrl+Shift+D';
   pet.addEventListener('mousedown', startPetDrag);
   document.body.appendChild(pet);
 
@@ -61,7 +63,17 @@ function injectPanelHTML() {
   overlay.id = '__ds-modal-overlay';
   overlay.className = 'ds-modal-overlay';
   overlay.innerHTML = buildQAModalHTML();
-  overlay.addEventListener('click', function(e) { if (e.target === overlay) hideAllModals(); });
+  overlay.addEventListener('click', function(e) {
+    if (e.target !== overlay) return;
+    // 审批/确认弹窗由各自的 handler 处理，不走 hideAllModals
+    var approvalModal = document.getElementById('__ds-tool-approval');
+    var confirmModal = document.getElementById('__ds-confirm-modal');
+    if ((approvalModal && approvalModal.style.display !== 'none') ||
+        (confirmModal && confirmModal.style.display !== 'none')) {
+      return; // 让审批/确认弹窗自己的 overlay handler 处理
+    }
+    hideAllModals();
+  });
   document.body.appendChild(overlay);
 
   bindPanelEvents();
@@ -86,7 +98,7 @@ function buildPanelHTML() {
     '  <div id="__ds-header-left">',
     '    <span id="__ds-logo" class="ds-logo">[AI]</span>',
     '    <span id="__ds-title">Tool Agent</span>',
-    '    <span id="__ds-version">v0.1.1</span>',
+    '    <span id="__ds-version">v' + PANEL_VERSION + '</span>',
     '  </div>',
     '  <div id="__ds-status">',
     '    <span id="__ds-dot"></span>',
@@ -300,12 +312,13 @@ function bindPanelEvents() {
   if (qaClose) qaClose.onclick = hideAllModals;
 
   // Keyboard shortcut: Ctrl+Shift+D to toggle panel
-  document.addEventListener('keydown', function(e) {
+  var _panelKeydownHandler = function(e) {
     if (e.ctrlKey && e.shiftKey && e.key === 'D') {
       e.preventDefault();
       togglePanel();
     }
-  });
+  };
+  document.addEventListener('keydown', _panelKeydownHandler);
 }
 
 // ============================================================
@@ -321,6 +334,13 @@ function startPetDrag(e) {
   pet.style.transition = 'none';
   document.addEventListener('mousemove', petDragMove);
   document.addEventListener('mouseup', petDragEnd);
+  // 安全超时：防止 mouseup 未触发导致监听器泄漏
+  var _petDragSafetyTimer = setTimeout(function() {
+    document.removeEventListener('mousemove', petDragMove);
+    document.removeEventListener('mouseup', petDragEnd);
+    petDragging = false;
+  }, 30000);
+  petDragEnd._safetyTimer = _petDragSafetyTimer;
   e.preventDefault();
 }
 function petDragMove(e) {
@@ -334,6 +354,8 @@ function petDragMove(e) {
 function petDragEnd(e) {
   if (!petDragging) return;
   petDragging = false;
+  // 清除安全超时定时器
+  if (petDragEnd._safetyTimer) { clearTimeout(petDragEnd._safetyTimer); petDragEnd._safetyTimer = null; }
   var dx = Math.abs(e.clientX - petDragStartX), dy = Math.abs(e.clientY - petDragStartY);
   var pet = document.getElementById('__ds-pet-ball');
   pet.style.transition = 'transform .15s';
@@ -354,6 +376,13 @@ function startPanelDrag(e) {
   p.style.transition = 'none';
   document.addEventListener('mousemove', panelDragMove);
   document.addEventListener('mouseup', panelDragEnd);
+  // 安全超时：防止 mouseup 未触发导致监听器泄漏
+  var _panelDragSafetyTimer = setTimeout(function() {
+    document.removeEventListener('mousemove', panelDragMove);
+    document.removeEventListener('mouseup', panelDragEnd);
+    panelDragging = false;
+  }, 30000);
+  panelDragEnd._safetyTimer = _panelDragSafetyTimer;
   e.preventDefault();
 }
 function panelDragMove(e) {
@@ -366,6 +395,8 @@ function panelDragMove(e) {
 function panelDragEnd() {
   if (!panelDragging) return;
   panelDragging = false;
+  // 清除安全超时定时器
+  if (panelDragEnd._safetyTimer) { clearTimeout(panelDragEnd._safetyTimer); panelDragEnd._safetyTimer = null; }
   document.getElementById('__ds-agent-panel').style.transition = '';
   document.removeEventListener('mousemove', panelDragMove);
   document.removeEventListener('mouseup', panelDragEnd);
@@ -385,6 +416,13 @@ function startPanelResize(e) {
   p.style.transition = 'none';
   document.addEventListener('mousemove', panelResizeMove);
   document.addEventListener('mouseup', panelResizeEnd);
+  // 安全超时：防止 mouseup 未触发导致监听器泄漏
+  var _resizeSafetyTimer = setTimeout(function() {
+    document.removeEventListener('mousemove', panelResizeMove);
+    document.removeEventListener('mouseup', panelResizeEnd);
+    panelResizing = false;
+  }, 30000);
+  panelResizeEnd._safetyTimer = _resizeSafetyTimer;
   e.preventDefault();
   e.stopPropagation();
 }
@@ -399,6 +437,8 @@ function panelResizeMove(e) {
 function panelResizeEnd() {
   if (!panelResizing) return;
   panelResizing = false;
+  // 清除安全超时定时器
+  if (panelResizeEnd._safetyTimer) { clearTimeout(panelResizeEnd._safetyTimer); panelResizeEnd._safetyTimer = null; }
   document.getElementById('__ds-agent-panel').style.transition = '';
   document.removeEventListener('mousemove', panelResizeMove);
   document.removeEventListener('mouseup', panelResizeEnd);
@@ -445,20 +485,21 @@ function togglePanel(show) {
 }
 
 function openPanel(panel, pet) {
+  panelVisible = true;
   panel.classList.add('visible');
   panel.style.display = 'flex';
-  pet.classList.add('visible');
+  // 面板展开时隐藏机器人窗口，保持两者只出现一种
+  pet.style.display = 'none';
   loadPanelData();
 }
 
 function closePanel(panel, pet) {
+  panelVisible = false;
   panel.classList.remove('visible');
   panel.style.display = 'none';
-  pet.classList.remove('visible');
-  pet.style.left = '';
-  pet.style.right = '';
-  pet.style.top = '';
-  pet.style.bottom = '';
+  // 面板关闭时恢复机器人窗口
+  pet.style.display = '';
+  // 保留小球拖拽后的位置，不要重置 left/top
 }
 
 async function loadPanelData() {
@@ -474,6 +515,21 @@ async function loadPanelData() {
     try { if (window.loadTools) window.loadTools(); } catch(e) {}
     try { if (window.loadSkills) window.loadSkills(); } catch(e) {}
     try { if (window.loadQuickActions) window.loadQuickActions(); } catch(e) {}
+  } else {
+    // 服务器不可用时，3秒后自动重试一次（可能是 CORS 或网络延迟）
+    setTimeout(async function() {
+      try {
+        if (window.checkServerHealth) {
+          var r2 = await window.checkServerHealth();
+          if (r2 && r2.healthy) {
+            updateServerStatusUI(true);
+            if (window.loadTools) window.loadTools();
+            if (window.loadSkills) window.loadSkills();
+            if (window.loadQuickActions) window.loadQuickActions();
+          }
+        }
+      } catch(e) {}
+    }, 3000);
   }
   renderLogs();
 }
@@ -615,11 +671,12 @@ function updateQuickActionButtons(actions) {
 function updateStatusBar() {
   var statusEl = document.getElementById('__ds-agent-status-text');
   if (!statusEl) return;
+  var tools = agentTools || [];
   var autoCount = 0;
-  for (var i = 0; i < agentTools.length; i++) {
-    if ((agentTools[i].mode || 'off') === 'auto') autoCount++;
+  for (var i = 0; i < tools.length; i++) {
+    if ((tools[i].mode || 'off') === 'auto') autoCount++;
   }
-  statusEl.innerHTML = '<span class="ds-online">Ready</span> &middot; ' + agentTools.length + ' tools &middot; ' + autoCount + ' auto';
+  statusEl.innerHTML = '<span class="ds-online">Ready</span> &middot; ' + tools.length + ' tools &middot; ' + autoCount + ' auto';
 }
 
 // ============================================================
@@ -673,12 +730,16 @@ function renderLogs() {
   html += '</div>';
   area.innerHTML = html;
 
-  var entries = area.querySelectorAll('.ds-log-entry');
-  for (var j = 0; j < entries.length; j++) {
-    entries[j].addEventListener('click', function() {
-      var idx = parseInt(this.getAttribute('data-log-index'));
-      expandedLogIndex = expandedLogIndex === idx ? -1 : idx;
-      renderLogs();
+  // 使用事件委托代替逐元素绑定，避免每次 renderLogs 重复添加监听器
+  if (!area._dsLogDelegated) {
+    area._dsLogDelegated = true;
+    area.addEventListener('click', function(e) {
+      var logEl = e.target.closest('.ds-log-entry');
+      if (logEl) {
+        var idx = parseInt(logEl.getAttribute('data-log-index'));
+        expandedLogIndex = expandedLogIndex === idx ? -1 : idx;
+        renderLogs();
+      }
     });
   }
 
@@ -716,10 +777,10 @@ function updateSSEIndicator(active) {
   if (!badge) return;
   if (active) {
     badge.classList.add('active');
-    badge.title = 'SSE Stream Intercept: Active (v0.1.1)';
+    badge.title = 'SSE Stream Intercept: Active (v' + PANEL_VERSION + ')';
   } else {
     badge.classList.remove('active');
-    badge.title = 'SSE Stream Intercept: Idle (v0.1.1)';
+    badge.title = 'SSE Stream Intercept: Idle (v' + PANEL_VERSION + ')';
   }
 }
 

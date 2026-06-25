@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>罗先生 | AI Agent Developer</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- 粒子背景画布 -->
+    <canvas id="particle-canvas"></canvas>
+
+    <!-- 导航栏 -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="#hero" class="nav-logo">
+                <span class="logo-bracket">&lt;</span>
+                <span class="logo-text">Luo</span>
+                <span class="logo-bracket">/&gt;</span>
+            </a>
+            <ul class="nav-menu">
+                <li><a href="#about" class="nav-link">关于</a></li>
+                <li><a href="#skills" class="nav-link">技能</a></li>
+                <li><a href="#projects" class="nav-link">项目</a></li>
+                <li><a href="#contact" class="nav-link">联系</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Hero 区域 -->
+    <section id="hero" class="hero">
+        <div class="hero-content">
+            <div class="hero-greeting">
+                <span class="typing-text" id="typing-text"></span>
+                <span class="cursor">|</span>
+            </div>
+            <h1 class="hero-title">
+                <span class="gradient-text">AI Agent</span>
+                <span class="text-light"> Developer</span>
+            </h1>
+            <p class="hero-subtitle">
+                Multi-Agent 编排框架维护者 &middot; AI 工作流架构师 &middot; 浏览器端 Agent 探索者
+            </p>
+            <div class="hero-cta">
+                <a href="#projects" class="btn btn-primary">
+                    <span class="btn-icon">&#9654;</span> 查看项目
+                </a>
+                <a href="#contact" class="btn btn-outline">
+                    <span class="btn-icon">&#9993;</span> 联系我
+                </a>
+            </div>
+            <div class="hero-stats">
+                <div class="stat-item">
+                    <span class="stat-number" data-count="10">0</span>
+                    <span class="stat-label">修复关键缺陷</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number" data-count="95">0</span>
+                    <span class="stat-label">任务成功率(%)</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number" data-count="5">0</span>
+                    <span class="stat-label">月稳定实习</span>
+                </div>
+            </div>
+        </div>
+        <div class="hero-visual">
+            <div class="rotating-ring"></div>
+            <div class="rotating-ring ring-2"></div>
+            <div class="center-dot"></div>
+        </div>
+    </section>
+
+    <!-- 关于我 -->
+    <section id="about" class="section about">
+        <div class="section-container">
+            <h2 class="section-title" data-aos="fade-up">
+                <span class="title-prefix">01.</span> 关于我
+            </h2>
+            <div class="about-content" data-aos="fade-up">
+                <div class="about-text">
+                    <p>
+                        浙大宁波理工学院 计算机科学与技术（AI方向）大三在读，目前正在寻找 <strong>AI 应用开发 / AI 工作流搭建</strong> 方向的实习机会。
+                    </p>
+                    <p>
+                        不只调用 API，我能独立搭建 <span class="highlight">Multi-Agent 协作系统</span>。拥有从 AI 编排框架源码维护、到浏览器端 Agent 执行的完整技术栈。热衷于将复杂问题拆解为可执行的子任务，让 AI 真正落地产生价值。
+                    </p>
+                    <p>
+                        目前维护的 OpenClaw 框架子会话任务成功率已从 60% 提升至 95%+；自研的 AI 小说创作工作流已在番茄小说 App 签约。
+                    </p>
+                    <div class="about-tags">
+                        <span class="tag">Multi-Agent</span>
+                        <span class="tag">Prompt Engineering</span>
+                        <span class="tag">Chrome Extension</span>
+                        <span class="tag">Linux</span>
+                        <span class="tag">Python</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 技能 -->
+    <section id="skills" class="section skills">
+        <div class="section-container">
+            <h2 class="section-title" data-aos="fade-up">
+                <span class="title-prefix">02.</span> 技能矩阵
+            </h2>
+            <div class="skills-grid">
+                <div class="skill-card" data-aos="fade-up">
+                    <div class="skill-icon">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M12 2a4 4 0 014 4c0 2.21-1.79 4-4 4s-4-1.79-4-4a4 4 0 014-4z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                            <circle cx="4" cy="10" r="2"/>
+                            <circle cx="20" cy="10" r="2"/>
+                            <circle cx="4" cy="18" r="2"/>
+                            <circle cx="12" cy="20" r="2"/>
+                            <circle cx="20" cy="18" r="2"/>
+                        </svg>
+                    </div>
+                    <h3>AI Agent 开发</h3>
+                    <p>Multi-Agent 角色设计与编排、多模型 API 集成、上下文管理与记忆系统、任务分发与多层审查流程设计</p>
+                </div>
+                <div class="skill-card" data-aos="fade-up">
+                    <div class="skill-icon">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <rect x="3" y="3" width="18" height="18" rx="2"/>
+                            <line x1="3" y1="9" x2="21" y2="9"/>
+                            <line x1="9" y1="21" x2="9" y2="9"/>
+                        </svg>
+                    </div>
+                    <h3>机器学习</h3>
+                    <p>Pandas/Scikit-learn 全流程：EDA、特征工程、模型训练与评估（KNN/CNN/DNN），独立完成回归与分类任务</p>
+                </div>
+                <div class="skill-card" data-aos="fade-up">
+                    <div class="skill-icon">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <polyline points="16 18 22 12 16 6"/>
+                            <polyline points="8 6 2 12 8 18"/>
+                            <line x1="14" y1="4" x2="10" y2="20"/>
+                        </svg>
+                    </div>
+                    <h3>开发工具</h3>
+                    <p>Python 熟练日常开发、JavaScript 浏览器扩展开发、Linux 环境部署调试、C/Java 基础</p>
+                </div>
+                <div class="skill-card" data-aos="fade-up">
+                    <div class="skill-icon">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 6v6l4 2"/>
+                        </svg>
+                    </div>
+                    <h3>Prompt Engineering</h3>
+                    <p>为不同 Agent 角色编写标准化系统提示词，构建可复用模板库，三层审查机制确保质量</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 项目经历 -->
+    <section id="projects" class="section projects">
+        <div class="section-container">
+            <h2 class="section-title" data-aos="fade-up">
+                <span class="title-prefix">03.</span> 项目经历
+            </h2>
+            
+            <!-- OpenClaw -->
+            <div class="project-card" data-aos="fade-up">
+                <div class="project-header">
+                    <div class="project-index">01</div>
+                    <div class="project-info">
+                        <h3>OpenClaw — Multi-Agent 编排框架维护</h3>
+                        <div class="project-meta">
+                            <span class="project-role">独立维护者</span>
+                            <span class="project-date">2025.10 — 至今</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="project-body">
+                    <div class="project-section">
+                        <h4>核心成就</h4>
+                        <ul>
+                            <li>累计修复 <span class="highlight">10+ 个关键缺陷</span>，子会话任务成功率从约 60% 提升至 <span class="highlight">95%+</span></li>
+                            <li>设计并实现工具调用失败反馈机制，引导 AI 自动重试或切换实现路径</li>
+                            <li>持续对比测试 4 款大模型（千问/GLM/Kimi/DeepSeek），总结出不同任务场景下的最优模型匹配方案</li>
+                        </ul>
+                    </div>
+                    <div class="project-section">
+                        <h4>技术关键词</h4>
+                        <div class="project-tags">
+                            <span class="tag">Multi-Agent 调度引擎</span>
+                            <span class="tag">子会话隔离</span>
+                            <span class="tag">Python</span>
+                            <span class="tag">Linux</span>
+                            <span class="tag">大模型集成</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI 小说工作流 -->
+            <div class="project-card" data-aos="fade-up">
+                <div class="project-header">
+                    <div class="project-index">02</div>
+                    <div class="project-info">
+                        <h3>AI 小说创作工作流 — Multi-Agent 协作系统</h3>
+                        <div class="project-meta">
+                            <span class="project-role">系统架构设计者 & 唯一开发者</span>
+                            <span class="project-date">2025.06 — 至今</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="project-body">
+                    <div class="project-section">
+                        <h4>核心成就</h4>
+                        <ul>
+                            <li>定义 <span class="highlight">四类专职 Agent</span>（策略规划/内容创作/质量审查/文本打磨），实现 Agent 串并行调度</li>
+                            <li>构建结构化知识库（世界观设定、角色档案、大纲细纲），实现跨章节上下文一致性</li>
+                            <li>建立 <span class="highlight">三层审查机制</span>，单章逻辑一致性错误率从 5 次以上降至 1 次以下</li>
+                            <li>基于该工作流产出的作品已在 <span class="highlight">番茄小说 App 获得签约</span></li>
+                        </ul>
+                    </div>
+                    <div class="project-section">
+                        <h4>技术关键词</h4>
+                        <div class="project-tags">
+                            <span class="tag">Agent 协作</span>
+                            <span class="tag">Prompt 模板库</span>
+                            <span class="tag">知识库系统</span>
+                            <span class="tag">质量控制</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DeepSeek Tool Agent -->
+            <div class="project-card" data-aos="fade-up">
+                <div class="project-header">
+                    <div class="project-index">03</div>
+                    <div class="project-info">
+                        <h3>DeepSeek Tool Agent — 浏览器端 Agent 执行框架</h3>
+                        <div class="project-meta">
+                            <span class="project-role">独立开发者</span>
+                            <span class="project-date">2026.02 — 至今</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="project-body">
+                    <div class="project-section">
+                        <h4>核心成就</h4>
+                        <ul>
+                            <li>设计 Content Script + Injected Script 双层隔离架构，实现页面 DOM 与扩展逻辑安全解耦</li>
+                            <li>实现 <span class="highlight">5 层状态机</span>监控模块，通过 SVG 路径变化精准判断 AI 生成状态</li>
+                            <li>构建三阶段执行管道，内置 <span class="highlight">14 种危险命令自动阻断</span></li>
+                            <li>25 项端到端自动化测试全部通过，工具执行管道平均响应时间 <span class="highlight">&lt; 50ms</span></li>
+                        </ul>
+                    </div>
+                    <div class="project-section">
+                        <h4>技术关键词</h4>
+                        <div class="project-tags">
+                            <span class="tag">Chrome Extension MV3</span>
+                            <span class="tag">Node.js</span>
+                            <span class="tag">状态机</span>
+                            <span class="tag">OpenClaw 兼容</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 数据挖掘 -->
+            <div class="project-card" data-aos="fade-up">
+                <div class="project-header">
+                    <div class="project-index">04</div>
+                    <div class="project-info">
+                        <h3>数据挖掘实验室 — 机器学习全流程实践</h3>
+                        <div class="project-meta">
+                            <span class="project-role">实验室成员</span>
+                            <span class="project-date">2024.09 — 至今</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="project-body">
+                    <div class="project-section">
+                        <h4>核心成就</h4>
+                        <ul>
+                            <li>使用 Pandas/Matplotlib/Seaborn 完成数据清洗与多维度可视化分析</li>
+                            <li>应用 KNN、CNN、DNN 等算法解决回归与分类任务，完成模型调参与评估</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 联系 -->
+    <section id="contact" class="section contact">
+        <div class="section-container">
+            <h2 class="section-title" data-aos="fade-up">
+                <span class="title-prefix">04.</span> 联系我
+            </h2>
+            <div class="contact-content" data-aos="fade-up">
+                <p class="contact-intro">
+                    正在寻找 <strong>宁波（海曙/鄞州）</strong> 的 AI 应用开发 / AI 工作流搭建实习机会，每周 4 天+，可稳定实习 5 个月以上。
+                </p>
+                <div class="contact-links">
+                    <a href="mailto:2845608744@qq.com" class="contact-link">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="4" width="20" height="16" rx="2"/>
+                            <path d="M22 4L12 13 2 4"/>
+                        </svg>
+                        2845608744@qq.com
+                    </a>
+                    <a href="https://github.com/lsy200409/openclaw-zero-token" target="_blank" class="contact-link">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                        </svg>
+                        GitHub
+                    </a>
+                    <a href="tel:17280866541" class="contact-link">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/>
+                        </svg>
+                        17280866541
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-container">
+            <p class="footer-text">Designed & Built by Luo &copy; 2026</p>
+            <p class="footer-subtext">浙大宁波理工学院 · 计算机科学与技术（人工智能方向）</p>
+        </div>
+    </footer>
+
+    <script src="js/particles.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

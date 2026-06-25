@@ -106,4 +106,14 @@ function resetCurrentSession() {
   executionHistory = [];
   originalTask = '';
   autoMode = false;
+
+  // 清理超过10分钟的已完成session，防止内存泄漏
+  if (agentSessions.size > 20) {
+    var now = Date.now();
+    for (var [id, sess] of agentSessions) {
+      if (sess.status === 'completed' && now - sess.createdAt > 600000) {
+        agentSessions.delete(id);
+      }
+    }
+  }
 }

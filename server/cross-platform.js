@@ -112,10 +112,28 @@ const WSL = {
   buildWslCommand(command, options) {
     const distro = (options && options.distro) || this.getDefaultDistro();
     const wslCwd = options && options.cwd ? this.winToWsl(options.cwd) : '';
+    // 验证 distro 名称，防止命令注入（只允许字母数字、点、连字符）
+    if (distro && !/^[a-zA-Z0-9._-]+$/.test(distro)) {
+      throw new Error('无效的 WSL 发行版名称: ' + distro);
+    }
+    // 注意：不使用 chcp 65001 前缀，因为 cmd.exe 不认单引号，会导致 WSL_E_INVALIDARG
+    // 编码问题通过 execOptions.encoding = 'utf-8' 在 Node.js 层面解决
     let wslCmd = 'wsl';
     if (distro) wslCmd += ' -d ' + distro;
-    if (wslCwd) wslCmd += ' --cd ' + wslCwd;
-    wslCmd += ' -- bash -c ' + escapeShellArg(command);
+    // --cd 参数：Linux 路径不含空格时直接拼接，含空格时用双引号包裹（cmd.exe 认双引号）
+    if (wslCwd) {
+      if (wslCwd.indexOf(' ') >= 0) {
+        wslCmd += ' --cd "' + wslCwd + '"';
+      } else {
+        wslCmd += ' --cd ' + wslCwd;
+      }
+    }
+    // 在 bash 内设置 LANG=C.UTF-8 确保输出为 UTF-8 编码
+    // 使用 bash -c "..." 双引号格式（cmd.exe 能正确传递双引号给 wsl）
+    var innerCmd = 'export LANG=C.UTF-8; ' + command;
+    // 对双引号内的内容进行转义
+    innerCmd = innerCmd.replace(/"/g, '\\"');
+    wslCmd += ' -- bash -c "' + innerCmd + '"';
     return wslCmd;
   },
 
@@ -165,7 +183,10 @@ function resolveHomeDir(inputPath) {
 function isPathWithinWorkspace(filePath, workspaceDir) {
   const resolved = path.resolve(filePath);
   const wsResolved = path.resolve(workspaceDir);
-  return resolved.startsWith(wsResolved + path.sep) || resolved === wsResolved;
+  // 统一路径分隔符后再比较，避免 Windows 下混合分隔符导致误判
+  const normalizedResolved = resolved.replace(/\\/g, '/').toLowerCase();
+  const normalizedWs = wsResolved.replace(/\\/g, '/').toLowerCase();
+  return normalizedResolved.startsWith(normalizedWs + '/') || normalizedResolved === normalizedWs;
 }
 
 // 解析路径，支持 WSL 路径格式

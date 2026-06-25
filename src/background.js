@@ -15,11 +15,54 @@ var MAX_RECONNECT_ATTEMPTS = 3;
 let lastReconnectDelay = 0;
 let lastConnectAttempt = 0;
 var CONNECT_COOLDOWN_MS = 5000;
-let healthCheckInterval = null;
 let connectAttemptInProgress = false;
-var _pendingStartupRetries = 0;
 
-// NOTE: TOOL_DEFINITIONS also defined in injected.js (MAIN world) and tools/registry.js (ISOLATED world) — must keep in sync
+// 启动时从 session storage 恢复状态（防止 SW 休眠后全局变量丢失）
+async function restoreState() {
+  try {
+    var stored = await chrome.storage.session.get(['serverStatus', 'reconnectAttempts']);
+    if (stored.serverStatus) {
+      serverStatus = stored.serverStatus;
+    }
+    if (stored.reconnectAttempts !== undefined) {
+      reconnectAttempts = stored.reconnectAttempts;
+    }
+    // Bug修复：SW 重启后 nativePort 必然为 null，需验证恢复的状态是否仍然有效
+    if (serverStatus.running) {
+      var httpOk = await checkHttpServer();
+      if (!httpOk) {
+        // HTTP 服务已不可用，重置为断开状态
+        serverStatus = { running: false, mode: 'disconnected' };
+        reconnectAttempts = 0;
+      } else {
+        // HTTP 可用但 Native Host 连接已丢失，降级为 HTTP 模式
+        serverStatus = { running: true, mode: 'http' };
+      }
+    }
+  } catch(e) {
+    // 恢复失败时重置为安全默认值，防止状态不一致
+    serverStatus = { running: false, mode: 'disconnected' };
+    reconnectAttempts = 0;
+  }
+}
+
+// 保存关键状态到 session storage（防止 SW 休眠后全局变量丢失）
+async function saveState() {
+  try {
+    await chrome.storage.session.set({
+      serverStatus: serverStatus,
+      reconnectAttempts: reconnectAttempts
+    });
+  } catch(e) {}
+}
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║ TOOL_DEFINITIONS — 必须与以下文件保持同步:                    ║
+// ║   • src/background.js (Service Worker)                      ║
+// ║   • src/injected.js (MAIN World)                            ║
+// ║   • src/tools/registry.js (ISOLATED World)                  ║
+// ║ 修改时请同步更新所有三处！                                     ║
+// ╚══════════════════════════════════════════════════════════════╝
 const TOOL_DEFINITIONS = [
   { name: "read_file", description: "读取本地文件的内容", parameters: { path: "文件的绝对路径 (string)" } },
   { name: "write_file", description: "写入内容到本地文件（不存在则创建，存在则覆盖）", parameters: { path: "文件的绝对路径 (string)", content: "要写入的文件内容 (string)" } },
@@ -30,6 +73,20 @@ const TOOL_DEFINITIONS = [
   { name: "get_file_info", description: "获取文件的详细信息（大小、修改时间等）", parameters: { path: "文件的绝对路径 (string)" } }
 ];
 
+// 工具定义一致性检查：确保 background.js 中的定义完整有效
+// injected.js 和 registry.js 的定义必须与此处一致，由于跨世界隔离无法直接比较
+function validateToolDefinitionsConsistency() {
+  if (typeof TOOL_DEFINITIONS !== 'undefined') {
+    console.log('[Background] TOOL_DEFINITIONS count:', TOOL_DEFINITIONS.length);
+    TOOL_DEFINITIONS.forEach(function(t) {
+      if (!t.name || !t.description) {
+        console.warn('[Background] 工具定义不完整:', t.name);
+      }
+    });
+  }
+}
+validateToolDefinitionsConsistency();
+
 function buildSystemPrompt() {
   let prompt = `## 可用工具\n\n你可以通过调用以下工具来帮助用户操作本地文件。\n\n### 工具调用格式：\n<tool_call name="工具名称">\n{"参数名":"参数值"}\n</tool_call\n\n### 工具列表：\n`;
   TOOL_DEFINITIONS.forEach(t => {
@@ -39,16 +96,8 @@ function buildSystemPrompt() {
   return prompt;
 }
 
-const TOOL_EXECUTORS = {
-  async read_file(args) { return await fetchExec('read_file', args); },
-  async write_file(args) { return await fetchExec('write_file', args); },
-  async list_dir(args) { return await fetchExec('list_dir', args); },
-  async exec_command(args) { return await fetchExec('exec_command', args); },
-  async append_file(args) { return await fetchExec('append_file', args); },
-  async search_files(args) { return await fetchExec('search_files', args); },
-  async get_file_info(args) { return await fetchExec('get_file_info', args); }
-};
-
+// 统一工具执行器 — 所有工具都通过 /exec 端点执行，不再硬编码白名单
+// 这样动态注册的插件管理、技能管理、MCP 等工具也能正常调用
 async function fetchExec(toolName, args) {
   var data = await fetchJSON('/exec', { tool: toolName, args: args });
   return data;
@@ -68,7 +117,7 @@ async function fetchJSON(endpoint, body, retries) {
       // 约束拦截（blocked）不是错误，直接返回
       if (data.blocked) return data;
       if (!data.success) {
-        var errMsg = data.error ? (data.error.message || JSON.stringify(data.error)) : JSON.stringify(data);
+        var errMsg = data.error ? (typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error))) : JSON.stringify(data);
         throw new Error(`服务器返回错误: ${errMsg} (HTTP ${response.status})`);
       }
       return data;
@@ -160,7 +209,9 @@ function doConnectNativeHost() {
 
       bgLog('connectNative() 返回: port=' + !!nativePort);
       reconnectAttempts = 0;
+      saveState(); // 重置重连计数后持久化
       var startupResolved = false;
+      var startupTimeout = null; // Bug修复：保存超时定时器引用，成功时清除
 
       nativePort.onMessage.addListener((message) => {
         bgLog('Native Host 消息: ' + JSON.stringify(message).substring(0, 200));
@@ -172,6 +223,8 @@ function doConnectNativeHost() {
             notifyStatus();
             break;
           case 'started':
+            // Bug修复：服务器启动成功，清除启动超时定时器防止泄漏
+            if (startupTimeout) { clearTimeout(startupTimeout); startupTimeout = null; }
             serverStatus = {
               running: true,
               mode: message.mode || 'native',
@@ -184,6 +237,7 @@ function doConnectNativeHost() {
             if (!startupResolved) { startupResolved = true; resolve(true); }
             break;
           case 'start_failed':
+            if (startupTimeout) { clearTimeout(startupTimeout); startupTimeout = null; }
             serverStatus = { running: false, mode: 'error', error: message.error || '启动失败' };
             bgLog('Native Host: 服务器启动失败 - ' + (message.error || 'unknown'));
             notifyStatus();
@@ -210,7 +264,10 @@ function doConnectNativeHost() {
       nativePort.onDisconnect.addListener(() => {
         var discErr = chrome.runtime.lastError ? chrome.runtime.lastError.message : 'none';
         bgLog('Native Host 断开 (error=' + discErr + ')');
+        // Bug修复：断开时清除启动超时定时器
+        if (startupTimeout) { clearTimeout(startupTimeout); startupTimeout = null; }
         nativePort = null;
+        isConnectedToNative = false; // 断开时重置连接标记
         connectAttemptInProgress = false;
 
         if (!startupResolved) { startupResolved = true; resolve(false); }
@@ -221,6 +278,14 @@ function doConnectNativeHost() {
             bgLog('HTTP 服务仍在运行，保持 running 状态 (HTTP模式)');
             serverStatus = { running: true, mode: 'http' };
             notifyStatus();
+            // Bug修复：HTTP 运行但 Native Host 断开，延迟尝试重连 Native Host
+            setTimeout(function() {
+              if (!nativePort) {
+                reconnectAttempts = 0;
+                lastConnectAttempt = 0;
+                connectNativeHost();
+              }
+            }, 5000);
             return;
           }
 
@@ -229,6 +294,7 @@ function doConnectNativeHost() {
 
           var delay = Math.min(3000 * (reconnectAttempts + 1), 15000);
           reconnectAttempts++;
+          saveState(); // 重连计数变更后持久化
           if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
             bgLog(reconnectAttempts + '/' + MAX_RECONNECT_ATTEMPTS + ' 次重连，' + delay + 'ms 后尝试...');
             setTimeout(function() {
@@ -247,7 +313,8 @@ function doConnectNativeHost() {
       connectAttemptInProgress = false;
 
       // 设置超时：60秒内没有 started/start_failed，视为失败
-      setTimeout(function() {
+      // Bug修复：保存超时引用以便成功时清除
+      startupTimeout = setTimeout(function() {
         if (!startupResolved) {
           bgLog('Native Host 启动超时 (60s)');
           startupResolved = true;
@@ -270,17 +337,12 @@ function disconnectNativeHost() {
     nativePort.disconnect();
     nativePort = null;
   }
+  isConnectedToNative = false; // 主动断开时重置连接标记
 }
 
 async function executeTool(toolCall) {
   const { name, arguments: args } = toolCall;
   bgLog('执行工具: ' + name);
-
-  const executor = TOOL_EXECUTORS[name];
-  if (!executor) {
-    const errorMsg = `未知工具: "${name}"。可用工具: ${Object.keys(TOOL_EXECUTORS).join(', ')}`;
-    return { success: false, error: errorMsg };
-  }
 
   try {
     const status = await checkServer();
@@ -288,7 +350,8 @@ async function executeTool(toolCall) {
       const errorMsg = '本地工具服务器未运行（端口 3002 无响应）';
       return { success: false, error: errorMsg, detail: { serverStatus: status } };
     }
-    const result = await executor(args);
+    // 统一走 /exec 端点，不再使用硬编码白名单
+    const result = await fetchExec(name, args);
     // 约束拦截结果直接返回
     if (result.blocked) {
       bgLog('工具 ' + name + ' 被约束拦截: ' + (result.reason || ''));
@@ -334,6 +397,7 @@ function notifyStatus() {
   try {
     chrome.runtime.sendMessage({ action: 'serverStatus', status: serverStatus }).catch(() => {});
   } catch(e) {}
+  saveState(); // 状态变更时持久化
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -341,8 +405,10 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.set({ toolEnabled: true });
 });
 
-chrome.runtime.onStartup.addListener(() => {
+chrome.runtime.onStartup.addListener(async () => {
   bgLog('浏览器启动');
+  // Bug修复：先等待状态恢复完成再连接，防止状态不一致
+  await restoreState();
   reconnectAttempts = 0;
   lastConnectAttempt = 0;
   connectNativeHost();
@@ -353,7 +419,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   switch (request.action) {
     case 'executeTool':
-      executeTool(request.tool).then(r => sendResponse(r)).catch(e => sendResponse({ success: false, error: e.message }));
+      executeTool(request.tool).then(r => sendResponse(r)).catch(e => sendResponse({ success: false, error: e.message || String(e) }));
       return true;
 
     case 'checkServer':
@@ -466,25 +532,52 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (!port) { resolve(false); return; }
             try {
               port.postMessage({ type: 'restart' });
-              var timeout = setTimeout(function() {
-                bgLog('restartServer: nativePort restart 超时');
-                serverStatus = { running: false, mode: 'restarting' };
-                notifyStatus();
-                sendResult({ success: true, method: 'native_port', status: 'timeout_waiting' });
-                resolve(true);
-              }, 5000);
+              var restartResolved = false;
+              var restartTimeout = null;
               var origListener = null;
-              origListener = port.onMessage.addListener(function(msg) {
-                if (msg.type === 'started' || msg.type === 'restarted') {
-                  clearTimeout(timeout);
-                  try { port.onMessage.removeListener(origListener); } catch(ex) {}
-                  serverStatus = { running: !!msg.success, mode: msg.mode || 'native' };
+
+              // Bug修复：统一清理函数，防止 listener 泄漏
+              function cleanupListener() {
+                if (restartTimeout) { clearTimeout(restartTimeout); restartTimeout = null; }
+                if (origListener) { try { port.onMessage.removeListener(origListener); origListener = null; } catch(ex) {} }
+              }
+
+              restartTimeout = setTimeout(function() {
+                if (!restartResolved) {
+                  restartResolved = true;
+                  bgLog('restartServer: nativePort restart 超时');
+                  serverStatus = { running: false, mode: 'restarting' };
                   notifyStatus();
-                  sendResult({ success: true, method: 'native_port', data: msg });
+                  sendResult({ success: true, method: 'native_port', status: 'timeout_waiting' });
+                  cleanupListener();
                   resolve(true);
                 }
-              });
-              resolve(true);
+              }, 5000);
+
+              origListener = function(msg) {
+                if (msg.type === 'started' || msg.type === 'restarted') {
+                  if (!restartResolved) {
+                    restartResolved = true;
+                    cleanupListener();
+                    serverStatus = { running: !!msg.success, mode: msg.mode || 'native' };
+                    notifyStatus();
+                    sendResult({ success: true, method: 'native_port', data: msg });
+                    resolve(true);
+                  }
+                } else if (msg.type === 'error') {
+                  // Bug修复：处理 Native Host 返回的 error 消息
+                  if (!restartResolved) {
+                    restartResolved = true;
+                    cleanupListener();
+                    serverStatus = { running: false, mode: 'error', error: msg.message };
+                    notifyStatus();
+                    sendResult({ success: false, method: 'native_port', error: msg.message });
+                    resolve(false);
+                  }
+                }
+              };
+              port.onMessage.addListener(origListener);
+              // Bug修复：移除立即 resolve(true)，等待 restart 实际结果或超时
             } catch(e) {
               bgLog('restartServer: nativePort postMessage 失败 - ' + e.message);
               resolve(false);
@@ -593,6 +686,15 @@ chrome.alarms.onAlarm.addListener((alarm) => {
         serverStatus = { running: true, mode: 'http' };
         notifyStatus();
       } else if (!nativePort && !serverStatus.running) {
+        // Bug修复：重置 lastConnectAttempt 防止冷却检查阻止合法重连
+        reconnectAttempts = 0;
+        lastConnectAttempt = 0;
+        connectNativeHost();
+      }
+      // HTTP 服务在运行但 Native Host 断开时，尝试重连 Native Host
+      if (serverStatus.running && !nativePort) {
+        bgLog('HTTP 服务运行中但 Native Host 断开，尝试重连 Native Host');
+        // Bug修复：重置 lastConnectAttempt 防止冷却检查阻止合法重连
         reconnectAttempts = 0;
         lastConnectAttempt = 0;
         connectNativeHost();
@@ -647,6 +749,13 @@ function tryNativeStartup(retryCount) {
   });
 }
 
-setTimeout(startupServerRecovery, 500);
+// SW 启动时先恢复持久化状态，再启动服务恢复
+// Bug修复：添加 .catch() 防止未处理的 Promise rejection
+restoreState().then(function() {
+  setTimeout(startupServerRecovery, 500);
+}).catch(function(e) {
+  bgLog('restoreState 失败: ' + (e && e.message || e));
+  setTimeout(startupServerRecovery, 500);
+});
 
 bgLog('Service Worker 初始化完成，等待事件...');

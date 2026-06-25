@@ -52,6 +52,20 @@ var MONITOR = {
   }
 };
 
+// 定时器引用集合，页面卸载时统一清理
+var _monitorIntervals = [];
+function _addMonitorInterval(fn, ms) {
+  var id = setInterval(fn, ms);
+  _monitorIntervals.push(id);
+  return id;
+}
+window.addEventListener('unload', function() {
+  for (var i = 0; i < _monitorIntervals.length; i++) {
+    clearInterval(_monitorIntervals[i]);
+  }
+  _monitorIntervals = [];
+});
+
 // ═══════════════════════════════════════════════════════════
 // § 1. UI Bridge — 面板状态更新、对话框
 // ═══════════════════════════════════════════════════════════
@@ -64,126 +78,177 @@ MONITOR.ui = {
   },
 
   showApprovalDialog: function(toolCall) {
-    return new Promise(function(resolve) {
-      var overlay = document.getElementById('__ds-modal-overlay');
-      if (!overlay) { resolve({ approved: true }); return; }
+    return Promise.race([
+      new Promise(function(resolve) {
+        var overlay = document.getElementById('__ds-modal-overlay');
+        if (!overlay) { resolve({ approved: true }); return; }
 
-      var modal = document.createElement('div');
-      modal.id = '__ds-tool-approval';
-      modal.className = 'ds-modal';
-      modal.style.display = 'block';
-      modal.style.position = 'relative';
-      modal.innerHTML = [
-        '<div class="ds-modal-title">工具调用审批</div>',
-        '<div style="margin:12px 0;padding:10px;background:var(--ds-bg);border-radius:var(--ds-radius-sm);">',
-        '  <strong>工具:</strong> ' + escapeAttr(toolCall.name) + '<br>',
-        '  <strong>参数:</strong> <pre style="margin:4px 0;font-size:11px;">' + escapeAttr(JSON.stringify(toolCall.arguments, null, 2)) + '</pre>',
-        '</div>',
-        '<div class="ds-modal-actions">',
-        '  <button class="ds-btn ds-btn-danger ds-btn-sm" id="__ds-approve-deny">拒绝</button>',
-        '  <button class="ds-btn ds-btn-success ds-btn-sm" id="__ds-approve-once">允许本次</button>',
-        '  <button class="ds-btn ds-btn-primary ds-btn-sm" id="__ds-approve-always">始终允许</button>',
-        '</div>'
-      ].join('');
+        var modal = document.createElement('div');
+        modal.id = '__ds-tool-approval';
+        modal.className = 'ds-modal';
+        modal.style.display = 'block';
+        modal.style.position = 'relative';
+        modal.innerHTML = [
+          '<div class="ds-modal-title">工具调用审批</div>',
+          '<div style="margin:12px 0;padding:10px;background:var(--ds-bg);border-radius:var(--ds-radius-sm);">',
+          '  <strong>工具:</strong> ' + escapeAttr(toolCall.name) + '<br>',
+          '  <strong>参数:</strong> <pre style="margin:4px 0;font-size:11px;">' + escapeAttr(JSON.stringify(toolCall.arguments, null, 2)) + '</pre>',
+          '</div>',
+          '<div class="ds-modal-actions">',
+          '  <button class="ds-btn ds-btn-danger ds-btn-sm" id="__ds-approve-deny">拒绝</button>',
+          '  <button class="ds-btn ds-btn-success ds-btn-sm" id="__ds-approve-once">允许本次</button>',
+          '  <button class="ds-btn ds-btn-primary ds-btn-sm" id="__ds-approve-always">始终允许</button>',
+          '</div>'
+        ].join('');
 
-      overlay.innerHTML = '';
-      overlay.appendChild(modal);
-      overlay.classList.add('show');
+        // 阻止 modal 内部点击冒泡到 overlay，防止误触关闭
+        modal.addEventListener('click', function(e) { e.stopPropagation(); });
 
-      document.getElementById('__ds-approve-once').onclick = function() {
-        overlay.classList.remove('show');
-        resolve({ approved: true, action: 'allow_once' });
-      };
-      document.getElementById('__ds-approve-always').onclick = function() {
-        overlay.classList.remove('show');
-        resolve({ approved: true, action: 'allow_always' });
-      };
-      document.getElementById('__ds-approve-deny').onclick = function() {
-        overlay.classList.remove('show');
-        resolve({ approved: false, action: 'deny' });
-      };
-    });
+        overlay.innerHTML = '';
+        overlay.appendChild(modal);
+        overlay.classList.add('show');
+
+        // 点击 overlay 背景区域时拒绝（而非仅关闭不 resolve）
+        var overlayClickHandler = function(e) {
+          if (e.target === overlay) {
+            overlay.classList.remove('show');
+            overlay.removeEventListener('click', overlayClickHandler);
+            resolve({ approved: false, action: 'deny' });
+          }
+        };
+        overlay.addEventListener('click', overlayClickHandler);
+
+        function cleanup() {
+          overlay.classList.remove('show');
+          overlay.removeEventListener('click', overlayClickHandler);
+        }
+
+        document.getElementById('__ds-approve-once').onclick = function() {
+          cleanup();
+          resolve({ approved: true, action: 'allow_once' });
+        };
+        document.getElementById('__ds-approve-always').onclick = function() {
+          cleanup();
+          resolve({ approved: true, action: 'allow_always' });
+        };
+        document.getElementById('__ds-approve-deny').onclick = function() {
+          cleanup();
+          resolve({ approved: false, action: 'deny' });
+        };
+      }),
+      new Promise(function(resolve) {
+        // 超时自动拒绝，防止 Promise 永远不 resolve 导致状态机挂起
+        setTimeout(function() {
+          var overlay = document.getElementById('__ds-modal-overlay');
+          if (overlay) overlay.classList.remove('show');
+          if (typeof logPanel === 'function') logPanel('warn', '⏰ 审批对话框超时(120秒)，自动拒绝');
+          resolve({ approved: false, action: 'deny' });
+        }, 120000);
+      })
+    ]);
   },
 
   // 敏感操作确认对话框 — 用于 needsConfirmation 结果
   showConfirmDialog: function(toolName, result) {
-    return new Promise(function(resolve) {
-      var overlay = document.getElementById('__ds-modal-overlay');
-      if (!overlay) { resolve({ confirmed: false }); return; }
+    return Promise.race([
+      new Promise(function(resolve) {
+        var overlay = document.getElementById('__ds-modal-overlay');
+        if (!overlay) { resolve({ confirmed: false }); return; }
 
-      var reason = result.reason || '此操作需要确认';
-      var explanation = result.explanation || '';
-      var command = result.command || '';
-      var filePath = result.path || '';
-      var safetyLevel = result.safetyLevel || '';
+        var reason = result.reason || '此操作需要确认';
+        var explanation = result.explanation || '';
+        var command = result.command || '';
+        var filePath = result.path || '';
+        var safetyLevel = result.safetyLevel || '';
 
-      var levelLabel = { sensitive: '⚠️ 敏感操作', dangerous: '🚫 危险操作' };
-      var levelColor = { sensitive: '#f59e0b', dangerous: '#ef4444' };
-      var label = levelLabel[safetyLevel] || '⚠️ 需要确认';
-      var color = levelColor[safetyLevel] || '#f59e0b';
+        var levelLabel = { sensitive: '⚠️ 敏感操作', dangerous: '🚫 危险操作' };
+        var levelColor = { sensitive: '#f59e0b', dangerous: '#ef4444' };
+        var label = levelLabel[safetyLevel] || '⚠️ 需要确认';
+        var color = levelColor[safetyLevel] || '#f59e0b';
 
-      var detailHtml = '';
-      if (command) {
-        detailHtml += '<div style="margin:8px 0;"><strong>命令:</strong> <code style="background:rgba(0,0,0,0.1);padding:2px 6px;border-radius:3px;font-size:12px;">' + escapeAttr(command) + '</code></div>';
-      }
-      if (filePath) {
-        detailHtml += '<div style="margin:8px 0;"><strong>路径:</strong> <code style="background:rgba(0,0,0,0.1);padding:2px 6px;border-radius:3px;font-size:12px;">' + escapeAttr(filePath) + '</code></div>';
-      }
-      if (explanation) {
-        detailHtml += '<div style="margin:8px 0;color:var(--ds-text-secondary);font-size:13px;">' + escapeAttr(explanation) + '</div>';
-      }
+        var detailHtml = '';
+        if (command) {
+          detailHtml += '<div style="margin:8px 0;"><strong>命令:</strong> <code style="background:rgba(0,0,0,0.1);padding:2px 6px;border-radius:3px;font-size:12px;">' + escapeAttr(command) + '</code></div>';
+        }
+        if (filePath) {
+          detailHtml += '<div style="margin:8px 0;"><strong>路径:</strong> <code style="background:rgba(0,0,0,0.1);padding:2px 6px;border-radius:3px;font-size:12px;">' + escapeAttr(filePath) + '</code></div>';
+        }
+        if (explanation) {
+          detailHtml += '<div style="margin:8px 0;color:var(--ds-text-secondary);font-size:13px;">' + escapeAttr(explanation) + '</div>';
+        }
 
-      var modal = document.createElement('div');
-      modal.id = '__ds-confirm-modal';
-      modal.className = 'ds-modal';
-      modal.style.cssText = 'display:block;position:relative;pointer-events:auto;';
-      modal.innerHTML = [
-        '<div class="ds-modal-title" style="border-left:4px solid ' + color + ';padding-left:10px;">' + label + '</div>',
-        '<div style="margin:12px 0;padding:10px;background:var(--ds-bg);border-radius:var(--ds-radius-sm);">',
-        '  <div style="margin-bottom:8px;font-weight:600;">' + escapeAttr(reason) + '</div>',
-        '  <div><strong>工具:</strong> ' + escapeAttr(toolName) + '</div>',
-        detailHtml,
-        '</div>',
-        '<div class="ds-modal-actions" style="pointer-events:auto;">',
-        '  <button class="ds-btn ds-btn-danger ds-btn-sm" id="__ds-confirm-deny" style="pointer-events:auto;cursor:pointer;position:relative;z-index:10;">拒绝</button>',
-        '  <button class="ds-btn ds-btn-success ds-btn-sm" id="__ds-confirm-ok" style="pointer-events:auto;cursor:pointer;position:relative;z-index:10;">确认执行</button>',
-        '</div>'
-      ].join('');
+        var modal = document.createElement('div');
+        modal.id = '__ds-confirm-modal';
+        modal.className = 'ds-modal';
+        modal.style.cssText = 'display:block;position:relative;pointer-events:auto;';
+        modal.innerHTML = [
+          '<div class="ds-modal-title" style="border-left:4px solid ' + color + ';padding-left:10px;">' + label + '</div>',
+          '<div style="margin:12px 0;padding:10px;background:var(--ds-bg);border-radius:var(--ds-radius-sm);">',
+          '  <div style="margin-bottom:8px;font-weight:600;">' + escapeAttr(reason) + '</div>',
+          '  <div><strong>工具:</strong> ' + escapeAttr(toolName) + '</div>',
+          detailHtml,
+          '</div>',
+          '<div class="ds-modal-actions" style="pointer-events:auto;">',
+          '  <button class="ds-btn ds-btn-danger ds-btn-sm" id="__ds-confirm-deny" style="pointer-events:auto;cursor:pointer;position:relative;z-index:10;">拒绝</button>',
+          '  <button class="ds-btn ds-btn-success ds-btn-sm" id="__ds-confirm-ok" style="pointer-events:auto;cursor:pointer;position:relative;z-index:10;">确认执行</button>',
+          '</div>'
+        ].join('');
 
-      // 阻止 modal 内部点击冒泡到 overlay
-      modal.addEventListener('click', function(e) { e.stopPropagation(); });
+        // 阻止 modal 内部点击冒泡到 overlay
+        modal.addEventListener('click', function(e) { e.stopPropagation(); });
 
-      overlay.innerHTML = '';
-      overlay.appendChild(modal);
-      overlay.classList.add('show');
+        overlay.innerHTML = '';
+        overlay.appendChild(modal);
+        overlay.classList.add('show');
 
-      // 使用 addEventListener 替代 onclick，更可靠
-      var okBtn = document.getElementById('__ds-confirm-ok');
-      var denyBtn = document.getElementById('__ds-confirm-deny');
+        // 点击 overlay 背景区域时拒绝（而非仅关闭不 resolve）
+        var overlayClickHandler = function(e) {
+          if (e.target === overlay) {
+            overlay.classList.remove('show');
+            overlay.removeEventListener('click', overlayClickHandler);
+            resolve({ confirmed: false });
+          }
+        };
+        overlay.addEventListener('click', overlayClickHandler);
 
-      function cleanup() {
-        if (okBtn) okBtn.removeEventListener('click', onConfirm);
-        if (denyBtn) denyBtn.removeEventListener('click', onDeny);
-        overlay.classList.remove('show');
-      }
+        // 使用 addEventListener 替代 onclick，更可靠
+        var okBtn = document.getElementById('__ds-confirm-ok');
+        var denyBtn = document.getElementById('__ds-confirm-deny');
 
-      function onConfirm(e) {
-        e.stopPropagation();
-        e.preventDefault();
-        cleanup();
-        resolve({ confirmed: true });
-      }
+        function cleanup() {
+          if (okBtn) okBtn.removeEventListener('click', onConfirm);
+          if (denyBtn) denyBtn.removeEventListener('click', onDeny);
+          overlay.classList.remove('show');
+          overlay.removeEventListener('click', overlayClickHandler);
+        }
 
-      function onDeny(e) {
-        e.stopPropagation();
-        e.preventDefault();
-        cleanup();
-        resolve({ confirmed: false });
-      }
+        function onConfirm(e) {
+          e.stopPropagation();
+          e.preventDefault();
+          cleanup();
+          resolve({ confirmed: true });
+        }
 
-      if (okBtn) okBtn.addEventListener('click', onConfirm);
-      if (denyBtn) denyBtn.addEventListener('click', onDeny);
-    });
+        function onDeny(e) {
+          e.stopPropagation();
+          e.preventDefault();
+          cleanup();
+          resolve({ confirmed: false });
+        }
+
+        if (okBtn) okBtn.addEventListener('click', onConfirm);
+        if (denyBtn) denyBtn.addEventListener('click', onDeny);
+      }),
+      new Promise(function(resolve) {
+        // 超时自动取消，防止 Promise 永远不 resolve 导致状态机挂起
+        setTimeout(function() {
+          var overlay = document.getElementById('__ds-modal-overlay');
+          if (overlay) overlay.classList.remove('show');
+          if (typeof logPanel === 'function') logPanel('warn', '⏰ 确认对话框超时(120秒)，自动取消');
+          resolve({ confirmed: false });
+        }, 120000);
+      })
+    ]);
   },
 
   updatePanelStatus: function(text) {
@@ -221,6 +286,20 @@ MONITOR.injector = {
     var out = {};
     if (toolName) out.tool = toolName;
 
+    // 结果截断辅助函数和配置
+    var MAX_RESULT_CHARS = 3000;
+    function truncateField(obj, key, max) {
+      if (obj[key] && typeof obj[key] === 'string' && obj[key].length > max) {
+        obj[key] = obj[key].substring(0, max) + '\n... [截断，共' + obj[key].length + '字符。如需完整内容请用 read_file 分段读取]';
+      }
+    }
+    function applyTruncation() {
+      truncateField(out, 'content', MAX_RESULT_CHARS);
+      truncateField(out, 'stdout', MAX_RESULT_CHARS);
+      truncateField(out, 'stderr', 1000);
+      truncateField(out, 'error', 1000);
+    }
+
     if (data.error) {
       if (typeof data.error === 'object' && data.error.message) {
         out.error = data.error.message;
@@ -228,6 +307,7 @@ MONITOR.injector = {
       } else {
         out.error = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
       }
+      applyTruncation();
       return out;
     }
     if (data.blocked) {
@@ -238,6 +318,7 @@ MONITOR.injector = {
       if (data.safetyLevel) out.safetyLevel = data.safetyLevel;
       if (data.command) out.command = data.command;
       if (data.path) out.path = data.path;
+      applyTruncation();
       return out;
     }
 
@@ -269,6 +350,7 @@ MONITOR.injector = {
       if (data.content) out.content = data.content;
       if (data.result) out.result = data.result;
     }
+    applyTruncation();
     return out;
   },
 
@@ -330,6 +412,14 @@ MONITOR.injector = {
         }
       }
 
+      // 总长度限制：保留原始任务和结尾指令，截断中间的工具结果
+      var MAX_TOTAL_CHARS = 8000;
+      if (responseText.length > MAX_TOTAL_CHARS) {
+        var header = '【工具执行结果（已截断）】\n';
+        var tail = responseText.substring(responseText.length - 500);
+        responseText = header + responseText.substring(0, MAX_TOTAL_CHARS - header.length - tail.length) + '\n... [结果过长已截断] ...\n' + tail;
+      }
+
       if (typeof logPanel === 'function') {
         logPanel('info', '📝 注入内容预览 (' + responseText.length + '字): ' + responseText.substring(0, 200).replace(/\n/g, ' '));
       }
@@ -360,7 +450,10 @@ MONITOR.injector = {
   injectSingleResult: function(callName, result) {
     return MONITOR.injector.injectResults([{
       tool: callName,
-      success: result.success !== false
+      success: result.success !== false,
+      data: result.data || result,
+      error: result.error,
+      blocked: result.blocked
     }]);
   }
 };
@@ -469,8 +562,8 @@ MONITOR.coordinator = {
     var results = [];
     var total = toolCalls.length;
 
-    // 工具执行时自动展开面板
-    if (typeof togglePanel === 'function') togglePanel(true);
+    // 工具执行时不自动展开面板，保持最小化模式运行
+    // 如需查看进度，用户可手动点击机器人图标展开面板
 
     for (var i = 0; i < toolCalls.length; i++) {
       var call = toolCalls[i];
@@ -489,8 +582,8 @@ MONITOR.coordinator = {
       MONITOR.ui.updateToolChainProgress(i + 1, total, call.name, statusIcon);
 
       if (result.blocked || result.denied) {
-        MONITOR.ui.notifyState('执行中断', { level: 'warn', message: '工具执行链中断于: ' + call.name });
-        break;
+        MONITOR.ui.notifyState('工具被拦截', { level: 'warn', message: '工具 ' + call.name + ' 被拦截，继续执行后续工具' });
+        // 不再 break，继续执行后续工具
       }
     }
 
@@ -512,9 +605,15 @@ MONITOR.parser = {
       if (txt && txt.length > 0) return txt;
     }
 
+    // 通用选择器列表，按优先级排列
     var selectors = [
       'div[class*="assistant"]',
-      'div[class*="response"]', 'div[class*="markdown"]', 'div[class*="prose"]'
+      'div[class*="response"]',
+      'div[class*="markdown"]',
+      'div[class*="prose"]',
+      'div[data-role="assistant"]',
+      'div[class*="ai-message"]',
+      'div[class*="bot-message"]'
     ];
     var best = '';
     for (var s = 0; s < selectors.length; s++) {
@@ -536,7 +635,7 @@ MONITOR.parser = {
       if (sse.active) return true;
       if (sse.streamEnded) return false;
       if (sse.lastEventTime > 0 && (now - sse.lastEventTime) < SSE_TIMEOUT_MS) {
-        return false;
+        return true;  // 最后事件在超时窗口内，流仍然活跃
       }
       // SSE 已启用但既不 active 也没 streamEnded — 可能 stream_end 事件丢失
       // 如果距离最后事件已超过阈值，认为流已结束
@@ -559,16 +658,29 @@ MONITOR.parser = {
 // § 5. State Machine — 轮询状态机与工具调用处理
 // ═══════════════════════════════════════════════════════════
 function countUserMessages() {
-  var all = document.querySelectorAll('div.ds-message');
+  // 优先使用平台提供的函数
+  if (typeof countPlatformUserMessages === 'function') {
+    return countPlatformUserMessages();
+  }
+  // 通用回退：尝试多种选择器
+  var selectors = [
+    'div.ds-message',
+    'div[class*="message"]',
+    'div[data-role="user"]',
+    'div[class*="user-message"]'
+  ];
   var count = 0;
-  for (var i = 0; i < all.length; i++) {
-    if (!all[i].querySelector('.ds-assistant-message-main-content')) {
+  for (var s = 0; s < selectors.length; s++) {
+    var all = document.querySelectorAll(selectors[s]);
+    if (all.length === 0) continue;
+    for (var i = 0; i < all.length; i++) {
       var txt = (all[i].innerText || all[i].textContent || '').trim();
       if (txt.indexOf('<tool_response') >= 0) continue;
       if (txt.indexOf('原始任务:') >= 0) continue;
       if (txt.indexOf('正在思考') === 0) continue;
       if (txt.length > 0) count++;
     }
+    if (count > 0) break; // 找到匹配的选择器就停止
   }
   return count;
 }
@@ -583,6 +695,8 @@ function getLatestUserText() {
 
 var _monitorStartMsgCount = 0;
 var _lastDetectedUserText = '';
+var _monitorStuckSince = 0;
+var _lastLoggedUserMsg = '';  // 去重：记录最近一次已输出的用户消息文本
 
 MONITOR.observer = {
   start: function() {
@@ -653,7 +767,7 @@ MONITOR.observer = {
         logPanel('info', '🔧 轮询发现SSE缓存工具调用，直接执行: ' +
           cachedCalls.map(function(c) { return c.name; }).join(', '));
       }
-      MONITOR.observer.handleToolCalls(cachedCalls);
+      MONITOR.observer.handleToolCalls(cachedCalls).catch(function(err) { logPanel('error', '工具调用处理异常: ' + err.message); });
       return;
     }
 
@@ -687,7 +801,12 @@ MONITOR.observer = {
     }
 
     if (!shouldReturn) {
-      MONITOR.pollTimer = setTimeout(function() { MONITOR.observer.poll(); }, MONITOR.config.pollInterval);
+      // 动态调整轮询间隔：空闲时降低频率
+      var interval = MONITOR.config.pollInterval;
+      if (MONITOR.state === 'listening' && MONITOR.stableCount > 10) {
+        interval = 2000; // 空闲2秒无变化，降到2秒一次
+      }
+      MONITOR.pollTimer = setTimeout(function() { MONITOR.observer.poll(); }, interval);
     }
   },
 
@@ -712,7 +831,11 @@ MONITOR.observer = {
         MONITOR.state = 'ai_streaming';
         MONITOR.ui.updatePanelStatus('AI生成中...');
         var userMsg = typeof getLatestUserMessageText === 'function' ? getLatestUserMessageText() : '';
-        if (typeof logPanel === 'function' && userMsg.length > 0 && userMsg.indexOf('正在思考') !== 0) {
+        // 去重：相同消息内容不重复记录
+        if (userMsg && userMsg === _lastLoggedUserMsg) {
+          // 跳过重复日志
+        } else if (typeof logPanel === 'function' && userMsg.length > 0 && userMsg.indexOf('正在思考') !== 0) {
+          _lastLoggedUserMsg = userMsg;
           logPanel('info', '📤 用户消息(' + userMsg.length + '字): "' + userMsg.substring(0, 100) + '"');
         } else if (typeof logPanel === 'function' && userMsg.length === 0) {
           logPanel('info', '📤 用户消息(0字，可能是工具回填消息)');
@@ -782,6 +905,20 @@ MONITOR.observer = {
     MONITOR._sseToolCallText = null;
 
     if (toolCalls.length > 0) {
+      // 检测显式任务完成标记
+      var hasTaskComplete = toolCalls.some(function(c) { return c.name === '__task_complete__'; });
+      if (hasTaskComplete) {
+        if (typeof logPanel === 'function') {
+          logPanel('success', '✅ AI 已显式标记任务完成 (<task_complete>)');
+        }
+        MONITOR.ui.notifyState('任务完成', { level: 'success', message: 'AI 已标记任务完成' });
+        MONITOR.state = 'idle';
+        MONITOR.observer.stop('task_complete');
+        if (typeof autoMode !== 'undefined') autoMode = false;
+        if (typeof updateAutoButtonState === 'function') updateAutoButtonState();
+        return true;
+      }
+
       MONITOR._preToolAiText = aiText;
       MONITOR.currentRound.toolCalls = toolCalls;
       MONITOR.currentRound.aiMessageText = aiText;
@@ -793,7 +930,7 @@ MONITOR.observer = {
         level: 'info',
         message: '检测到 ' + toolCalls.length + ' 个工具调用: ' + toolCalls.map(function(c) { return c.name; }).join(', ')
       });
-      MONITOR.observer.handleToolCalls(toolCalls);
+      MONITOR.observer.handleToolCalls(toolCalls).catch(function(err) { logPanel('error', '工具调用处理异常: ' + err.message); });
       return true; // handleToolCalls 管理后续轮询
     }
 
@@ -838,6 +975,27 @@ MONITOR.observer = {
   },
 
   handleToolCalls: async function(toolCalls) {
+    // 去重：防止同一轮次重复执行相同的工具调用
+    var seen = {};
+    var dedupedCalls = [];
+    for (var i = 0; i < toolCalls.length; i++) {
+      var key = toolCalls[i].name + '::' + JSON.stringify(toolCalls[i].arguments || {});
+      if (!seen[key]) {
+        seen[key] = true;
+        dedupedCalls.push(toolCalls[i]);
+      } else {
+        if (typeof logPanel === 'function') {
+          logPanel('warn', '跳过重复工具调用: ' + toolCalls[i].name);
+        }
+      }
+    }
+    toolCalls = dedupedCalls;
+
+    // 清理 SSE 缓存，防止后续轮询重复解析
+    MONITOR.sse.endText = '';
+    MONITOR._sseToolCalls = null;
+    MONITOR._sseToolCallText = null;
+
     if (typeof logPanel === 'function') {
       logPanel('info', '🔧 开始处理 ' + toolCalls.length + ' 个工具调用: ' +
         toolCalls.map(function(c) { return c.name + '(' + JSON.stringify(c.arguments || {}).substring(0, 40) + ')'; }).join(', '));
@@ -916,7 +1074,21 @@ MONITOR.observer = {
       results: results.map(function(r) { return { tool: r.tool || r.name, success: r.success, error: r.error || undefined }; }),
       round: MONITOR._toolChainIterations + 1,
       timestamp: Date.now()
-    }, '*');
+    }, window.location.origin);
+
+    // 持久化工具调用历史到服务器，供 get_tool_history 工具查询
+    try {
+      var histPayload = {
+        iteration: MONITOR._toolChainIterations + 1,
+        results: results.map(function(r) { return { tool: r.tool || r.name, success: r.success, error: r.error || undefined }; }),
+        timestamp: Date.now()
+      };
+      fetch(getEndpoint('save_tool_history'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(histPayload)
+      }).catch(function() {});
+    } catch(e) {}
 
     var injected = await MONITOR.injector.injectResults(results);
     if (injected) {
@@ -944,9 +1116,13 @@ MONITOR.observer = {
       MONITOR.state = 'listening';
       MONITOR._noToolCallWaitCount = 0;
       MONITOR._preToolAiText = null;
-    MONITOR._consecutiveSameTool = 0;
-    MONITOR._consecutiveFailures = 0;
-    MONITOR._circuitBreakerTriggered = false;
+      // 只有工具全部成功时才重置熔断器，避免失败结果注入后熔断计数被清零
+      var allSuccess = results.every(function(r) { return r.success !== false; });
+      if (allSuccess) {
+        MONITOR._consecutiveSameTool = 0;
+        MONITOR._consecutiveFailures = 0;
+        MONITOR._circuitBreakerTriggered = false;
+      }
 
     var dotsEl = document.getElementById('__ds-chain-dots');
     if (dotsEl) dotsEl.innerHTML = '';
@@ -984,15 +1160,15 @@ function syncMonitorToMainWorld() {
       toolNames: MONITOR.currentRound ? (MONITOR.currentRound.tools || []).slice(0, 10) : [],
       execResults: MONITOR.currentRound ? (MONITOR.currentRound.executedResults || []).length : 0
     }
-  }, '*');
+  }, window.location.origin);
 }
-setInterval(syncMonitorToMainWorld, 2000);
+_addMonitorInterval(syncMonitorToMainWorld, 5000);
 syncMonitorToMainWorld();
 
 // Monitor 状态超时保护：如果卡在 ai_streaming/executing_tools 超过 180 秒，自动恢复
 var _monitorStateTimestamp = Date.now();
 var _lastMonitorState = MONITOR.state;
-setInterval(function() {
+_addMonitorInterval(function() {
   if (MONITOR.state !== _lastMonitorState) {
     _lastMonitorState = MONITOR.state;
     _monitorStateTimestamp = Date.now();
@@ -1022,7 +1198,7 @@ window.addEventListener('message', function(event) {
   var data = event.data;
 
   if (data.type === '__ds_auto_tool_calls' && data.toolCalls && data.toolCalls.length > 0) {
-    MONITOR.observer.handleToolCalls(data.toolCalls);
+    MONITOR.observer.handleToolCalls(data.toolCalls).catch(function(err) { logPanel('error', '工具调用处理异常: ' + err.message); });
   }
 
   if (data.type === '__ds_auto_no_tool_calls') {
@@ -1051,17 +1227,17 @@ window.addEventListener('message', function(event) {
       _sseToolCalls: MONITOR._sseToolCalls ? MONITOR._sseToolCalls.length : 0,
       pollTimer: !!MONITOR.pollTimer,
       autoWatchRunning: typeof autoWatchRunning !== 'undefined' ? autoWatchRunning : 'UNDEFINED'
-    }, '*');
+    }, window.location.origin);
   }
 
   if (data.type === '__ds_test_start_monitor') {
     MONITOR.observer.start();
-    window.postMessage({ type: '__ds_test_state_response', state: MONITOR.state, action: 'started' }, '*');
+    window.postMessage({ type: '__ds_test_state_response', state: MONITOR.state, action: 'started' }, window.location.origin);
   }
 
   if (data.type === '__ds_test_stop_monitor') {
     MONITOR.observer.stop('test_stop');
-    window.postMessage({ type: '__ds_test_state_response', state: MONITOR.state, action: 'stopped' }, '*');
+    window.postMessage({ type: '__ds_test_state_response', state: MONITOR.state, action: 'stopped' }, window.location.origin);
   }
 });
 
@@ -1213,10 +1389,10 @@ window.addEventListener('message', function(event) {
     }
   }
 
-  setInterval(checkForNewUserMessage, 1000);
+  _addMonitorInterval(checkForNewUserMessage, 1000);
 
   var _visibilityFired = 0;
-  var _monitorStuckSince = 0;
+  _monitorStuckSince = 0;
 
   function forceCheckVisibility() {
     _visibilityFired++;
@@ -1303,7 +1479,7 @@ window.addEventListener('message', function(event) {
     if (typeof autoWatchRunning === 'undefined' || !autoWatchRunning) return;
     // 验证 injected.js 在页面上下文中是否存活
     try {
-      window.postMessage({ type: '__ds_heartbeat_injected', timestamp: Date.now() }, '*');
+      window.postMessage({ type: '__ds_heartbeat_injected', timestamp: Date.now() }, window.location.origin);
     } catch(e) {
       console.warn('[Monitor] SSE 注入验证失败: ' + e.message);
     }
@@ -1333,27 +1509,38 @@ window.addEventListener('message', function(event) {
   // ═══════════════════════════════════════════════════════════
   // § 10. MutationObserver — DOM 变动监听
   // ═══════════════════════════════════════════════════════════
+  // 防抖定时器：避免每次 DOM 变动都触发检查
+  var _mutationDebounceTimer = null;
   var observer = new MutationObserver(function(mutations) {
+    // 跳过扩展自身产生的 DOM 变动
+    var hasRelevantChange = false;
     for (var i = 0; i < mutations.length; i++) {
       var added = mutations[i].addedNodes;
       for (var j = 0; j < added.length; j++) {
-        if (added[j].nodeType === 1) {
-          if (typeof getLatestUserMessageText === 'function') {
-            var t = getLatestUserMessageText();
-            if (t && t.length > 0) {
-              checkForNewUserMessage();
-              return;
-            }
-          }
-        }
+        var node = added[j];
+        if (node.nodeType !== 1) continue;
+        // 跳过扩展自身的元素（__ds- 前缀 id 或 ds- 前缀 class）
+        if (node.id && node.id.indexOf('__ds-') === 0) continue;
+        if (node.className && typeof node.className === 'string' && node.className.indexOf('ds-') >= 0) continue;
+        hasRelevantChange = true;
+        break;
       }
+      if (hasRelevantChange) break;
     }
+    if (!hasRelevantChange) return;
+
+    // 防抖：500ms 内只触发一次检查
+    if (_mutationDebounceTimer) clearTimeout(_mutationDebounceTimer);
+    _mutationDebounceTimer = setTimeout(function() {
+      _mutationDebounceTimer = null;
+      checkForNewUserMessage();
+    }, 500);
   });
 
   var _observedBody = document.body;
   observer.observe(_observedBody, { childList: true, subtree: true });
 
-  setInterval(function() {
+  _addMonitorInterval(function() {
     if (document.body !== _observedBody) {
       observer.disconnect();
       _observedBody = document.body;

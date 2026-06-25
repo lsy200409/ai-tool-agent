@@ -136,12 +136,12 @@
     setInputValue: function(element, value) {
       // 通义千问使用 contenteditable div
       element.focus();
-      // 先全选并删除（使用 Select All + Delete 更可靠）
+      // 先全选并删除
       document.execCommand('selectAll', false, null);
       document.execCommand('delete', false, null);
-      // 短暂延迟后插入文本
+      // execCommand('insertText') 对长文本可能静默失败
       var ok = document.execCommand('insertText', false, value);
-      // fallback
+      // fallback: 手动构建 DOM 节点
       if (!ok || !element.textContent || element.textContent.trim() === '') {
         element.innerHTML = '';
         var lines = value.split('\n');

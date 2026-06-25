@@ -4,15 +4,21 @@
   if (window.__deepseekToolAgentInjected) return;
   window.__deepseekToolAgentInjected = true;
 
-  // NOTE: TOOL_DEFINITIONS also defined in background.js (service worker) and tools/registry.js (ISOLATED world) — must keep in sync
+  // ╔══════════════════════════════════════════════════════════════╗
+  // ║ TOOL_DEFINITIONS — 必须与以下文件保持同步:                    ║
+  // ║   • src/background.js (Service Worker)                      ║
+  // ║   • src/injected.js (MAIN World)                            ║
+  // ║   • src/tools/registry.js (ISOLATED World)                  ║
+  // ║ 修改时请同步更新所有三处！                                     ║
+  // ╚══════════════════════════════════════════════════════════════╝
   var TOOL_DEFINITIONS = [
-    { name: "read_file",   description: "读取本地文件内容",                     parameters: { path: "string" } },
-    { name: "write_file",  description: "写入内容到本地文件(不存在则创建,存在则覆盖)", parameters: { path: "string", content: "string" } },
-    { name: "list_dir",    description: "列出指定目录下的文件和子目录",           parameters: { path: "string" } },
-    { name: "exec_command", description: "在Windows系统上执行cmd命令并返回输出", parameters: { command: "string" } },
-    { name: "append_file", description: "追加内容到本地文件末尾",                parameters: { path: "string", content: "string" } },
-    { name: "search_files", description: "在指定目录中搜索文件名匹配的文件",     parameters: { pattern: "string", root: "string" } },
-    { name: "get_file_info", description: "获取文件详细信息(大小,修改时间等)",   parameters: { path: "string" } }
+    { name: "read_file", description: "读取本地文件的内容", parameters: { path: "文件的绝对路径 (string)" } },
+    { name: "write_file", description: "写入内容到本地文件（不存在则创建，存在则覆盖）", parameters: { path: "文件的绝对路径 (string)", content: "要写入的文件内容 (string)" } },
+    { name: "list_dir", description: "列出指定目录下的所有文件和子目录", parameters: { path: "目录的绝对路径 (string)" } },
+    { name: "exec_command", description: "在 Windows 系统上执行一条 cmd 命令并返回输出结果", parameters: { command: "要执行的命令 (string)" } },
+    { name: "append_file", description: "追加内容到本地文件末尾", parameters: { path: "文件的绝对路径 (string)", content: "要追加的内容 (string)" } },
+    { name: "search_files", description: "在指定目录中搜索文件名匹配模式的文件", parameters: { pattern: "文件名的通配符模式 (string)", root: "搜索的根目录 (string)" } },
+    { name: "get_file_info", description: "获取文件的详细信息（大小、修改时间等）", parameters: { path: "文件的绝对路径 (string)" } }
   ];
 
   function buildSystemPrompt() {
@@ -51,14 +57,26 @@
   }
 
   function findChatInput() {
+    // 修复：增加更多通用选择器，提高跨平台兼容性
     var selectors = [
       'textarea[name="search"]',
       'textarea[placeholder*="DeepSeek"]',
       'textarea[placeholder*="发送"]',
+      'textarea[placeholder*="Send"]',
+      'textarea[placeholder*="Message"]',
+      'textarea[placeholder*="消息"]',
+      'textarea[placeholder*="输入"]',
+      'textarea[placeholder*="Ask"]',
       'textarea._27c9245',
       'textarea[class*="ds-scroll-area"]',
       'textarea.ds-textarea',
+      'textarea[class*="chat-input"]',
+      'textarea[class*="input-area"]',
       'textarea:not([hidden])',
+      'div[contenteditable="true"][class*="input"]',
+      'div[contenteditable="true"][class*="editor"]',
+      'div[contenteditable="true"][class*="chat"]',
+      'div[contenteditable="true"][class*="textarea"]',
       'div[contenteditable="true"]'
     ];
 
@@ -77,8 +95,8 @@
   }
 
   function setInputValue(element, value) {
-    element.focus();
     if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
+      // 原生 setter 优先（execCommand('insertText') 对长文本静默失败）
       var setOk = false;
       try {
         var desc = Object.getOwnPropertyDescriptor(
@@ -93,18 +111,23 @@
       if (!setOk) {
         try { element.value = value; setOk = true; } catch(e) {}
       }
-      if (!setOk) {
-        try { document.execCommand('insertText', false, value); setOk = true; } catch(e) {}
-      }
       element.dispatchEvent(new Event('input', { bubbles: true }));
       element.dispatchEvent(new Event('change', { bubbles: true }));
+      element.focus();
+    } else if (element.isContentEditable) {
+      // contenteditable 需要先清空再插入
+      element.focus();
+      try {
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertText', false, value);
+      } catch (e) {
+        // 降级：直接设置 textContent
+        element.textContent = value;
+      }
       element.dispatchEvent(new InputEvent('input', {
         bubbles: true, cancelable: true, composed: true,
-        data: value, inputType: 'insertText'
+        inputType: 'insertText', data: value
       }));
-    } else if (element.isContentEditable) {
-      element.textContent = value;
-      element.dispatchEvent(new Event('input', { bubbles: true }));
     }
   }
 
@@ -165,7 +188,9 @@
       bubbles: true, cancelable: true
     }));
 
-    setTimeout(function() {
+    // 修复：保存定时器引用，避免无法取消的定时器泄漏
+    if (window.__clickSendRetryTimer) clearTimeout(window.__clickSendRetryTimer);
+    window.__clickSendRetryTimer = setTimeout(function() {
       textarea.dispatchEvent(new KeyboardEvent('keydown', {
         key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
         bubbles: true, cancelable: true
@@ -176,41 +201,55 @@
   }
 
   function doInject(autoSend) {
-    var input = findChatInput();
-    if (!input) return { success: false, error: '找不到输入框' };
+    try {
+      var input = findChatInput();
+      if (!input) return { success: false, error: '找不到输入框' };
 
-    var currentValue = input.value || '';
+      // 全局标记检查：防止同一会话重复注入
+      if (window.__ds_toolPromptInjected) {
+        return { success: true, toolCount: TOOL_DEFINITIONS.length, alreadyInjected: true };
+      }
 
-    if (currentValue.includes('## 可用工具') && currentValue.includes('<tool_call')) {
-      return { success: true, toolCount: TOOL_DEFINITIONS.length, alreadyInjected: true };
+      var currentValue = input.value || '';
+
+      // 统一匹配两种 prompt 格式
+      if (currentValue.includes('## 可用工具') || currentValue.includes('## 内置工具')) {
+        return { success: true, toolCount: TOOL_DEFINITIONS.length, alreadyInjected: true };
+      }
+
+      var toolPrompt = buildSystemPrompt();
+
+      var newValue;
+      if (currentValue.trim()) {
+        newValue = toolPrompt + '\n\n---\n\n' + currentValue;
+      } else {
+        newValue = toolPrompt;
+      }
+
+      setInputValue(input, newValue);
+      input.focus();
+
+      if (autoSend) {
+        // 修复：保存定时器引用，以便需要时取消
+        if (window.__doInjectSendTimer) clearTimeout(window.__doInjectSendTimer);
+        window.__doInjectSendTimer = setTimeout(function() {
+          input.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+            bubbles: true, cancelable: true
+          }));
+          input.dispatchEvent(new KeyboardEvent('keyup', {
+            key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+            bubbles: true
+          }));
+        }, 300);
+      }
+
+      window.__ds_toolPromptInjected = true;
+      return { success: true, toolCount: TOOL_DEFINITIONS.length };
+    } catch (e) {
+      // 修复：捕获注入过程中的异常，返回错误信息而非静默失败
+      return { success: false, error: '注入失败: ' + (e.message || String(e)) };
     }
-
-    var toolPrompt = buildSystemPrompt();
-
-    var newValue;
-    if (currentValue.trim()) {
-      newValue = toolPrompt + '\n\n---\n\n' + currentValue;
-    } else {
-      newValue = toolPrompt;
-    }
-
-    setInputValue(input, newValue);
-    input.focus();
-
-    if (autoSend) {
-      setTimeout(function() {
-        input.dispatchEvent(new KeyboardEvent('keydown', {
-          key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
-          bubbles: true, cancelable: true
-        }));
-        input.dispatchEvent(new KeyboardEvent('keyup', {
-          key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
-          bubbles: true
-        }));
-      }, 300);
-    }
-
-    return { success: true, toolCount: TOOL_DEFINITIONS.length };
   }
 
   var __latestAIMessageEl = null;
@@ -257,12 +296,16 @@
   function observeLatestAIMessage() {
     return new Promise(function(resolve) {
       var latestEl = null;
+      var found = false;
+      var observer = null;
+      var pollInterval = null;
 
+      // 超时处理：断开 observer 并清除轮询，防止资源泄漏
       var timeout = setTimeout(function() {
+        if (observer) observer.disconnect();
+        if (pollInterval) clearInterval(pollInterval);
         resolve(latestEl);
       }, 60000);
-
-      var found = false;
 
       function checkExisting() {
         if (found) return false;
@@ -273,6 +316,8 @@
           latestEl = el;
           __latestAIMessageEl = el;
           __lastKnownText = (el.innerText || el.textContent || '').trim();
+          if (observer) observer.disconnect(); // 找到后断开 observer，防止泄漏
+          if (pollInterval) clearInterval(pollInterval); // 找到后清除轮询，防止泄漏
           resolve(el);
           return true;
         }
@@ -281,7 +326,7 @@
 
       if (checkExisting()) return;
 
-      var observer = new MutationObserver(function(mutations) {
+      observer = new MutationObserver(function(mutations) {
         if (found) return;
         for (var m = 0; m < mutations.length; m++) {
           var added = mutations[m].addedNodes;
@@ -297,7 +342,8 @@
                 latestEl = el;
                 __latestAIMessageEl = el;
                 __lastKnownText = currentText;
-                observer.disconnect();
+                observer.disconnect(); // 防止 observer 泄漏
+                clearInterval(pollInterval); // 防止轮询泄漏
                 resolve(el);
                 return;
               }
@@ -313,13 +359,13 @@
         characterDataOldValue: true
       });
 
-      var pollInterval = setInterval(function() {
+      pollInterval = setInterval(function() {
         if (found) {
           clearInterval(pollInterval);
           return;
         }
         if (checkExisting()) {
-          clearInterval(pollInterval);
+          // checkExisting 内部已做清理，无需重复
         }
       }, 500);
     });
@@ -428,13 +474,43 @@
   var __ARROW_PATH = 'm8.3125';
 
   function findSendButton() {
+    // 修复：增加多种发送按钮检测策略，不仅依赖 SVG 路径
     var all = document.querySelectorAll('[role="button"],button');
+    var bestBtn = null;
+    var bestScore = 0;
+
     for (var i = 0; i < all.length; i++) {
       var b = all[i];
       if (b.getBoundingClientRect().width === 0) continue;
-      if ((b.innerHTML || '').toLowerCase().indexOf(__ARROW_PATH) >= 0) return b;
+
+      var html = (b.innerHTML || '').toLowerCase();
+      var aria = (b.getAttribute('aria-label') || '').toLowerCase();
+      var cls = (b.className || '').toLowerCase();
+      var score = 0;
+
+      // SVG 箭头路径匹配（DeepSeek 特征）
+      if (html.indexOf(__ARROW_PATH) >= 0) score += 30;
+
+      // aria-label 包含发送/提交关键词
+      if (aria.indexOf('发送') >= 0 || aria.indexOf('send') >= 0 || aria.indexOf('submit') >= 0) score += 20;
+
+      // class 包含 send/submit
+      if (cls.indexOf('send') >= 0 || cls.indexOf('submit') >= 0) score += 15;
+
+      // 包含 SVG 图标（发送按钮通常有图标）
+      if (html.indexOf('<svg') >= 0) score += 5;
+
+      // 排除明显的非发送按钮
+      if (aria.indexOf('附件') >= 0 || aria.indexOf('attach') >= 0 || aria.indexOf('upload') >= 0) continue;
+      if (cls.indexOf('attach') >= 0 || cls.indexOf('upload') >= 0) continue;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestBtn = b;
+      }
     }
-    return null;
+
+    return bestBtn;
   }
 
   function isSendButtonArrow(btn) {
@@ -511,7 +587,8 @@
         if (cmdMatch && cmdMatch[1]) return { tool: toolName, parameters: { command: cmdMatch[1] } };
         cmdMatch = content.match(/"command"\s*:\s*"(.*?)"\s*\}/);
         if (cmdMatch && cmdMatch[1]) return { tool: toolName, parameters: { command: cmdMatch[1] } };
-        return { tool: toolName, parameters: { command: content } };
+        // 解析失败时不执行，避免命令注入
+        return null;
       }
       return { tool: toolName, parameters: {} };
     }
@@ -554,7 +631,11 @@
   window.__setInputValue = setInputValue;
   window.__clickSendButton = clickSendButton;
 
-  window.addEventListener('message', function(event) {
+  // 修复：消息监听器 — 验证入站消息 origin，防止跨域攻击；保存引用以便清理
+  var __messageHandler = function(event) {
+    // 修复：验证消息来源，只接受同源消息，防止跨域恶意注入
+    if (event.origin !== window.location.origin) return;
+
     if (!event.data || typeof event.data !== 'object') return;
 
     var data = event.data;
@@ -565,7 +646,7 @@
         type: '__ds_inject_result',
         requestId: data.requestId,
         result: result
-      }, '*');
+      }, window.location.origin);
     }
 
     if (data.type === '__ds_heartbeat_injected') {
@@ -577,8 +658,17 @@
         streamActive: ss.active,
         fetchPatched: true,
         timestamp: Date.now()
-      }, '*');
+      }, window.location.origin);
     }
-  });
+  };
+  window.addEventListener('message', __messageHandler);
+
+  // 修复：暴露清理接口，防止内存泄漏
+  window.__deepseekToolAgentCleanup = function() {
+    window.removeEventListener('message', __messageHandler);
+    if (window.__doInjectSendTimer) clearTimeout(window.__doInjectSendTimer);
+    if (window.__clickSendRetryTimer) clearTimeout(window.__clickSendRetryTimer);
+    window.__deepseekToolAgentInjected = false;
+  };
 
 })();

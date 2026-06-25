@@ -4,6 +4,7 @@ function buildCombinedResults() {
     var tc = pendingToolCalls[i];
     if (tc.result && tc.result.error) {
       var errMsg = typeof tc.result.error === 'string' ? tc.result.error : JSON.stringify(tc.result.error, null, 2);
+      if (errMsg.length > 1000) errMsg = errMsg.substring(0, 1000) + '\n... [截断]';
       output += '❌ ' + tc.name + ' 执行失败:\n' + errMsg + '\n';
     } else if (tc.status === 'done') {
       var content = '';
@@ -11,6 +12,10 @@ function buildCombinedResults() {
       else if (tc.result && tc.result.content !== undefined) content = tc.result.content;
       else if (tc.result && tc.result.stdout !== undefined) { content = tc.result.stdout; if (tc.result.stderr) content += '\n[stderr] ' + tc.result.stderr; }
       else if (tc.result) content = JSON.stringify(tc.result);
+      var MAX_CHARS = 3000;
+      if (content.length > MAX_CHARS) {
+        content = content.substring(0, MAX_CHARS) + '\n... [截断，共' + content.length + '字符]';
+      }
       output += '✅ ' + tc.name + ' 执行成功:\n' + content + '\n';
     } else { output += '⚠️ ' + tc.name + ': 状态未知\n'; }
   }

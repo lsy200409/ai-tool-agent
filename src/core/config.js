@@ -5,7 +5,8 @@ var DS_CONFIG = {
     health: '/health',
     tool: '/api/tool',
     exec: '/exec',
-    config: '/api/config'
+    config: '/api/config',
+    save_tool_history: '/api/save_tool_history'
   },
   monitor: {
     pollInterval: 200,
@@ -73,3 +74,22 @@ function saveConfigToStorage(configOverride, callback) {
     if (callback) callback();
   });
 }
+
+// ═══════════════════════════════════════════════════════════
+// Store 集成 — 当 DS_CONFIG 变化时同步到 Store
+// ═══════════════════════════════════════════════════════════
+var _originalSaveConfigToStorage = saveConfigToStorage;
+saveConfigToStorage = function(configOverride, callback) {
+  _originalSaveConfigToStorage(configOverride, function() {
+    // 同步到 Store
+    if (typeof updateAppState === 'function') {
+      updateAppState(function(prev) {
+        return Object.assign({}, prev, {
+          server: Object.assign({}, prev.server, { url: DS_CONFIG.serverUrl }),
+          permissions: Object.assign({}, prev.permissions, { globalPermissions: DS_CONFIG.globalPermissions })
+        });
+      });
+    }
+    if (callback) callback();
+  });
+};

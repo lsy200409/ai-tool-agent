@@ -45,6 +45,15 @@ jsconfig.json
 .vscode/
 .idea/
 
+# Personal files
+workspace/xiao-zheng-skills/
+workspace/个人简历.md
+workspace/复习课.ppt
+workspace/patch/
+
+# Test plugin
+workspace/plugins/test-plugin-verify/
+
 # Workspace runtime data (not config)
 workspace/*.txt
 workspace/memory/

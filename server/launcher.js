@@ -80,7 +80,7 @@ async function startServer() {
 
   if (serverProcess) {
     log('正在停止旧进程...', 'WARN');
-    serverProcess.kill('SIGTERM');
+    try { serverProcess.kill('SIGTERM'); } catch (e) { /* 进程可能已退出 */ }
     await new Promise(r => setTimeout(r, 500));
   }
 
@@ -154,8 +154,8 @@ function scheduleHealthCheck() {
       log('检测到服务器未运行，正在重启...', 'WARN');
       await startServer();
     } else if (running && !serverProcess) {
-      log('检测到服务器在运行但进程已丢失', 'WARN');
-      serverProcess = { pid: null };
+      // 服务器在运行但进程引用已丢失，无法管理该进程
+      log('检测到服务器在运行但进程已丢失（无法管理），保持 serverProcess=null', 'WARN');
     }
 
     scheduleHealthCheck();
@@ -163,14 +163,33 @@ function scheduleHealthCheck() {
 }
 
 function createLauncherApi() {
+  // 判断请求来源是否为本地（localhost 或 127.0.0.1）
+  function isLocalhostOrigin(origin) {
+    return /^https?:\/\/localhost(:\d+)?$/.test(origin) ||
+           /^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
+  }
+
   const apiServer = http.createServer(async (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    // 仅允许本地来源访问启动器 API，防止跨域攻击
+    var requestOrigin = req.headers.origin || '';
+    if (isLocalhostOrigin(requestOrigin)) {
+      res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', '');
+    }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     if (req.method === 'OPTIONS') {
       res.writeHead(200);
       res.end();
+      return;
+    }
+
+    // 非 OPTIONS 请求：如果携带了 Origin 且不是本地来源，则拒绝访问
+    if (requestOrigin && !isLocalhostOrigin(requestOrigin)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '仅允许本地来源访问启动器 API' }));
       return;
     }
 
@@ -207,7 +226,9 @@ function createLauncherApi() {
     if (url === '/api/launcher/stop' && req.method === 'POST') {
       isShuttingDown = true;
       if (healthCheckTimer) clearTimeout(healthCheckTimer);
-      if (serverProcess) serverProcess.kill('SIGTERM');
+      if (serverProcess) {
+        try { serverProcess.kill('SIGTERM'); } catch (e) { /* 进程可能已退出 */ }
+      }
       removePid();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, message: '启动器已停止' }));
@@ -261,7 +282,9 @@ async function main() {
     log('正在停止...', 'WARN');
     isShuttingDown = true;
     if (healthCheckTimer) clearTimeout(healthCheckTimer);
-    if (serverProcess) serverProcess.kill('SIGTERM');
+    if (serverProcess) {
+      try { serverProcess.kill('SIGTERM'); } catch (e) { /* 进程可能已退出 */ }
+    }
     removePid();
     setTimeout(() => {
       launcherApi.close();

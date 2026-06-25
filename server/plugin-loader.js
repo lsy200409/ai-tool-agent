@@ -11,6 +11,134 @@
 const fsp = require('fs').promises;
 const fss = require('fs');
 const path = require('path');
+var sandboxProxies = require('./sandbox-proxies');
+
+// ============================================================
+// 插件沙箱 — 限制插件可访问的 Node.js 模块
+// 防止恶意插件访问文件系统、网络、进程等敏厳能力
+// ============================================================
+var ALLOWED_PLUGIN_MODULES = [
+  'path', 'url', 'querystring', 'crypto', 'util',
+  'events', 'stream', 'buffer', 'string_decoder',
+  'zlib', 'assert', 'math', 'json'
+];
+
+// 完全禁止的模块（无安全代理方式）
+var BLOCKED_PLUGIN_MODULES = [
+  'cluster', 'dgram', 'dns', 'fs/promises',
+  'net', 'os', 'readline', 'repl', 'tls',
+  'v8', 'vm', 'worker_threads'
+];
+
+// 需要代理的模块 — 提供受限版本而非完全禁止
+var PROXIED_MODULES = {
+  'fs': function(workspaceDir, pluginId) {
+    return sandboxProxies.createSandboxedFs(workspaceDir, pluginId);
+  },
+  'http': function(workspaceDir, pluginId) {
+    return sandboxProxies.createSandboxedHttp(pluginId, require('http'));
+  },
+  'https': function(workspaceDir, pluginId) {
+    return sandboxProxies.createSandboxedHttp(pluginId, require('https'));
+  },
+  'child_process': function(workspaceDir, pluginId) {
+    return sandboxProxies.createSandboxedChildProcess(pluginId);
+  }
+};
+
+function createPluginSandbox(pluginDir, pluginId, workspaceDir) {
+  workspaceDir = workspaceDir || pluginDir;
+
+  var sandboxRequire = function(moduleName) {
+    // 解析相对路径 — 允许插件内部引用
+    if (moduleName.startsWith('./') || moduleName.startsWith('../') || moduleName.startsWith('/')) {
+      // 只允许引用插件目录内的文件
+      var resolved = path.resolve(pluginDir, moduleName);
+      if (!resolved.startsWith(path.resolve(pluginDir) + path.sep) && resolved !== path.resolve(pluginDir)) {
+        throw new Error('插件 ' + pluginId + ' 尝试引用目录外文件: ' + moduleName);
+      }
+      return require(resolved);
+    }
+
+    // 检查是否需要代理
+    var baseModule = moduleName.split('/')[0];
+    if (PROXIED_MODULES[baseModule]) {
+      return PROXIED_MODULES[baseModule](workspaceDir, pluginId);
+    }
+
+    // 检查模块黑名单
+    if (BLOCKED_PLUGIN_MODULES.indexOf(baseModule) >= 0) {
+      throw new Error('插件 ' + pluginId + ' 无权访问模块: ' + moduleName + ' (安全限制)');
+    }
+
+    // 白名单内的核心模块直接放行
+    if (ALLOWED_PLUGIN_MODULES.indexOf(baseModule) >= 0) {
+      return require(moduleName);
+    }
+
+    // 第三方模块 — 允许（npm 包在 node_modules 中），但记录警告
+    console.warn('[PluginSandbox] 插件 ' + pluginId + ' 引用第三方模块: ' + moduleName);
+    return require(moduleName);
+  };
+
+  return sandboxRequire;
+}
+
+// 使用 vm 模块在沙箱中加载插件代码，注入自定义 require
+function sandboxModule(entryPath, sandboxRequire) {
+  var vm = require('vm');
+  var fssLoad = require('fs');
+  var content = fssLoad.readFileSync(entryPath, 'utf-8');
+  var moduleExports = {};
+  var moduleObj = { exports: moduleExports };
+
+  // 模拟 Node.js 模块包装: (function(exports, require, module, __filename, __dirname) { ... })
+  var wrappedCode = '(function(exports, require, module, __filename, __dirname) {\n' + content + '\n});';
+
+  var script = new vm.Script(wrappedCode, { filename: entryPath });
+  var fn = script.runInNewContext({
+    console: console,
+    setTimeout: setTimeout,
+    setInterval: setInterval,
+    clearTimeout: clearTimeout,
+    clearInterval: clearInterval,
+    JSON: JSON,
+    Math: Math,
+    Date: Date,
+    RegExp: RegExp,
+    Error: Error,
+    TypeError: TypeError,
+    RangeError: RangeError,
+    SyntaxError: SyntaxError,
+    URIError: URIError,
+    EvalError: EvalError,
+    Promise: Promise,
+    Array: Array,
+    Object: Object,
+    String: String,
+    Number: Number,
+    Boolean: Boolean,
+    Map: Map,
+    Set: Set,
+    Symbol: Symbol,
+    parseInt: parseInt,
+    parseFloat: parseFloat,
+    isNaN: isNaN,
+    isFinite: isFinite,
+    encodeURIComponent: encodeURIComponent,
+    decodeURIComponent: decodeURIComponent,
+    encodeURI: encodeURI,
+    decodeURI: decodeURI,
+    Buffer: Buffer,
+    ArrayBuffer: ArrayBuffer,
+    Uint8Array: Uint8Array
+  });
+
+  // 调用包装函数，注入沙箱 require
+  fn(moduleExports, sandboxRequire, moduleObj, entryPath, path.dirname(entryPath));
+
+  return moduleObj.exports;
+}
 
 // ============================================================
 // 简易 semver 检查 (不引入外部依赖)
@@ -190,6 +318,13 @@ class PluginRegistry {
 
   async unload(pluginId) {
     if (!this._plugins.has(pluginId)) return false;
+    // 清理插件注册的工具
+    if (this._toolRegistry && typeof this._toolRegistry.unregisterToolsByPlugin === 'function') {
+      const removed = this._toolRegistry.unregisterToolsByPlugin(pluginId);
+      if (removed.length > 0) {
+        console.log('[PluginRegistry] 卸载插件 ' + pluginId + '，移除 ' + removed.length + ' 个工具: ' + removed.join(', '));
+      }
+    }
     this._plugins.delete(pluginId);
     return true;
   }
@@ -263,9 +398,19 @@ class PluginRegistry {
           const entryFile = manifest.entry || 'index.js';
           const entryPath = path.join(pluginDir, entryFile);
 
+          // 验证 entry 路径，防止路径穿越
+          const realEntryDir = path.resolve(pluginDir);
+          const realEntryPath = path.resolve(entryPath);
+          if (!realEntryPath.startsWith(realEntryDir + path.sep) && realEntryPath !== realEntryDir) {
+            this._diagnostics.push({ level: 'error', pluginId: entry.name, message: '插件入口路径逃逸: ' + entryFile });
+            continue;
+          }
+
           try {
             await fsp.access(entryPath);
-            const pluginModule = require(entryPath);
+            // 使用沙箱 require 加载插件，限制其可访问的模块
+            var sandbox = createPluginSandbox(pluginDir, manifest.id || entry.name, this._workspaceDir);
+            var pluginModule = sandboxModule(entryPath, sandbox);
             // 如果模块导出的是函数, 包裹为 { definition: fn }
             const raw = typeof pluginModule === 'function' ? { definition: pluginModule } :
               (typeof pluginModule.default === 'function' ? { definition: pluginModule.default } : (pluginModule.default || pluginModule));
@@ -299,7 +444,9 @@ class PluginRegistry {
         const indexPath = path.join(pluginDir, 'index.js');
         try {
           await fsp.access(indexPath);
-          const pluginModule = require(indexPath);
+          // 使用沙箱 require 加载插件，限制其可访问的模块
+          var sandbox2 = createPluginSandbox(pluginDir, entry.name, this._workspaceDir);
+          const pluginModule = sandboxModule(indexPath, sandbox2);
           const pluginDef = typeof pluginModule === 'function' ? { register: pluginModule, definition: pluginModule } :
             (pluginModule.default ? { ...pluginModule.default, definition: pluginModule.default.register || pluginModule.default } : pluginModule);
 
@@ -330,4 +477,4 @@ class PluginRegistry {
   }
 }
 
-module.exports = { PluginRegistry, isVersionCompatible, parseSemver };
+module.exports = { PluginRegistry, isVersionCompatible, parseSemver, createPluginSandbox, sandboxModule };

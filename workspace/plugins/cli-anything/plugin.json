@@ -1,0 +1,8 @@
+{
+  "id": "cli-anything",
+  "name": "CLI-Anything 适配器",
+  "version": "1.0.0",
+  "description": "为任意软件生成 CLI 接口，让 Agent 原生调用 GIMP、Blender 等软件。通过 cli-hub 命令行工具管理 CLI 生态系统",
+  "entry": "index.js",
+  "requiredEngineVersion": "^0.1.0"
+}
